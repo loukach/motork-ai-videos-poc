@@ -107,6 +107,136 @@
 				"description": "Get a list of vehicles from MotorK's API"
 			},
 			"response": []
+		},
+		{
+			"name": "Get Vehicle Gallery Images",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}",
+						"type": "text"
+					},
+					{
+						"key": "Accept",
+						"value": "*/*",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "{{base_url}}/vehicle/{{vehicleId}}/images/gallery?country=it",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"vehicle",
+						"{{vehicleId}}",
+						"images",
+						"gallery"
+					],
+					"query": [
+						{
+							"key": "country",
+							"value": "it",
+							"description": "Country code (default: it)"
+						}
+					]
+				},
+				"description": "Get all images for a specific vehicle's gallery"
+			},
+			"response": []
+		},
+		{
+			"name": "Upload Vehicle Gallery Image",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}",
+						"type": "text"
+					},
+					{
+						"key": "Accept",
+						"value": "*/*",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "formdata",
+					"formdata": [
+						{
+							"key": "file",
+							"type": "file",
+							"src": "/path/to/your/image.jpg",
+							"description": "Image file to upload"
+						}
+					]
+				},
+				"url": {
+					"raw": "{{base_url}}/vehicle/{{vehicleId}}/images/gallery/upload?country=it",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"vehicle",
+						"{{vehicleId}}",
+						"images",
+						"gallery",
+						"upload"
+					],
+					"query": [
+						{
+							"key": "country",
+							"value": "it",
+							"description": "Country code (default: it)"
+						}
+					]
+				},
+				"description": "Upload a new image to a vehicle's gallery"
+			},
+			"response": []
+		},
+		{
+			"name": "Delete Vehicle Gallery Image",
+			"request": {
+				"method": "DELETE",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}",
+						"type": "text"
+					},
+					{
+						"key": "Accept",
+						"value": "*/*",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "{{base_url}}/vehicle/{{vehicleId}}/images/gallery/{{imageId}}?country=it",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"vehicle",
+						"{{vehicleId}}",
+						"images",
+						"gallery",
+						"{{imageId}}"
+					],
+					"query": [
+						{
+							"key": "country",
+							"value": "it",
+							"description": "Country code (default: it)"
+						}
+					]
+				},
+				"description": "Delete a specific image from a vehicle's gallery"
+			},
+			"response": []
 		}
 	],
 	"event": [
@@ -140,6 +270,18 @@
 			"key": "access_token",
 			"value": "",
 			"type": "string"
+		},
+		{
+			"key": "vehicleId",
+			"value": "",
+			"type": "string",
+			"description": "The ID of the vehicle to view/modify"
+		},
+		{
+			"key": "imageId",
+			"value": "",
+			"type": "string",
+			"description": "The ID of the image to delete"
 		}
 	]
 }

@@ -14,12 +14,13 @@ const path = require('path');
 let runway = null;
 try {
   // Import the SDK
-  const Runway = require('@runwayml/sdk');
+  const RunwayML = require('@runwayml/sdk');
   
   // Initialize the SDK with API key
   const RUNWAY_API_KEY = process.env.RUNWAY_API_KEY;
   if (RUNWAY_API_KEY) {
-    runway = new Runway(RUNWAY_API_KEY);
+    // Pass the API key as an object with the apiKey property
+    runway = new RunwayML({ apiKey: RUNWAY_API_KEY });
     console.log('Runway SDK initialized successfully');
   } else {
     console.warn('Runway API key not found in environment variables');

@@ -38,15 +38,58 @@ app.use(bodyParser.urlencoded({ extended: true }));
 // Request logging middleware
 app.use((req, res, next) => {
   const timestamp = new Date().toISOString();
-  console.log(`[${timestamp}] ${req.method} ${req.url}`);
-  console.log('Headers:', JSON.stringify(req.headers));
-  console.log('Query:', JSON.stringify(req.query));
-  console.log('Body:', JSON.stringify(req.body));
+  const reqId = Date.now().toString(36).slice(-4);
+  
+  // Log request with clear separation
+  console.log(`\n----- REQUEST [${reqId}] ${timestamp} -----`);
+  console.log(`${req.method} ${req.url}`);
+  
+  // Prettify headers - hide authorization token details
+  const headers = { ...req.headers };
+  if (headers.authorization) {
+    headers.authorization = headers.authorization.replace(/Bearer .+/, 'Bearer [TOKEN_HIDDEN]');
+  }
+  console.log('Headers:', JSON.stringify(headers, null, 2));
+  
+  // Only log query and body if they exist
+  if (Object.keys(req.query).length > 0) {
+    console.log('Query:', JSON.stringify(req.query, null, 2));
+  }
+  
+  // Sanitize password in auth requests
+  let bodyToLog = req.body;
+  if (req.url.includes('/auth/token') && bodyToLog.password) {
+    bodyToLog = { ...bodyToLog, password: '[HIDDEN]' };
+  }
+  
+  if (req.body && Object.keys(req.body).length > 0) {
+    console.log('Body:', JSON.stringify(bodyToLog, null, 2));
+  }
   
   // Capture response
   const originalSend = res.send;
   res.send = function(body) {
-    console.log(`[${timestamp}] Response:`, body.substring ? body.substring(0, 200) + (body.length > 200 ? '...' : '') : body);
+    console.log(`\n----- RESPONSE [${reqId}] -----`);
+    
+    // Handle both string and object responses
+    if (typeof body === 'string') {
+      // Try to parse as JSON for better formatting
+      try {
+        if (body.startsWith('{') || body.startsWith('[')) {
+          const jsonBody = JSON.parse(body);
+          console.log(JSON.stringify(jsonBody, null, 2).substring(0, 500) + 
+                    (JSON.stringify(jsonBody).length > 500 ? '...' : ''));
+        } else {
+          console.log(body.substring(0, 500) + (body.length > 500 ? '...' : ''));
+        }
+      } catch (e) {
+        console.log(body.substring(0, 500) + (body.length > 500 ? '...' : ''));
+      }
+    } else {
+      console.log(JSON.stringify(body, null, 2).substring(0, 500) + 
+                (JSON.stringify(body).length > 500 ? '...' : ''));
+    }
+    
     return originalSend.apply(res, arguments);
   };
   
@@ -56,7 +99,7 @@ app.use((req, res, next) => {
 // Authentication endpoint
 app.post('/auth/token', async (req, res) => {
   try {
-    console.log('[API Request] Auth token request to MotorK');
+    console.log('\n----- API REQUEST: Auth token -----');
     const response = await axios({
       method: 'post',
       url: 'https://auth.motork.io/realms/prod/protocol/openid-connect/token',
@@ -66,18 +109,24 @@ app.post('/auth/token', async (req, res) => {
       data: new URLSearchParams(req.body)
     });
     
-    console.log('[API Response] Auth token successful:', 
-      JSON.stringify({
-        access_token: response.data.access_token ? `${response.data.access_token.substring(0, 20)}...` : undefined,
-        token_type: response.data.token_type,
-        expires_in: response.data.expires_in,
-        scope: response.data.scope
-      })
-    );
+    // Log response with token security
+    console.log('\n----- API RESPONSE: Auth token -----');
+    console.log(JSON.stringify({
+      status: response.status,
+      access_token: response.data.access_token ? '[TOKEN_HIDDEN]' : undefined,
+      token_type: response.data.token_type,
+      expires_in: response.data.expires_in,
+      scope: response.data.scope
+    }, null, 2));
     
     res.json(response.data);
   } catch (error) {
-    console.error('[API Error] Auth token failed:', error.message, error.response?.data);
+    console.error('\n----- API ERROR: Auth token -----');
+    console.error(`Status: ${error.response?.status || 'Unknown'}`);
+    console.error(`Message: ${error.message}`);
+    if (error.response?.data) {
+      console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+    }
     res.status(error.response?.status || 500).json(error.response?.data || { error: 'Internal server error' });
   }
 });
@@ -89,11 +138,11 @@ app.get('/vehicles', async (req, res) => {
     const authHeader = req.headers.authorization;
     
     if (!authHeader) {
-      console.warn('[Auth Error] Missing authorization header');
+      console.warn('\n----- AUTH ERROR: Missing authorization header -----');
       return res.status(401).json({ error: 'Authorization header required' });
     }
 
-    console.log(`[API Request] Vehicle listing request (page=${page}, size=${size})`);
+    console.log(`\n----- API REQUEST: Vehicle listing (page=${page}, size=${size}) -----`);
     const response = await axios({
       method: 'get',
       url: `https://carspark-api.dealerk.com/it/vehicle?page=${page}&size=${size}`,
@@ -102,18 +151,23 @@ app.get('/vehicles', async (req, res) => {
       }
     });
     
-    console.log('[API Response] Vehicle listing successful:',
-      JSON.stringify({
-        totalElements: response.data.totalElements,
-        totalPages: response.data.totalPages,
-        size: response.data.size,
-        vehicleCount: response.data.content?.length || 0
-      })
-    );
+    console.log('\n----- API RESPONSE: Vehicle listing -----');
+    console.log(JSON.stringify({
+      status: response.status,
+      totalElements: response.data.totalElements,
+      totalPages: response.data.totalPages,
+      size: response.data.size,
+      vehicleCount: response.data.content?.length || 0
+    }, null, 2));
     
     res.json(response.data);
   } catch (error) {
-    console.error('[API Error] Vehicle listing failed:', error.message, error.response?.data);
+    console.error('\n----- API ERROR: Vehicle listing -----');
+    console.error(`Status: ${error.response?.status || 'Unknown'}`);
+    console.error(`Message: ${error.message}`);
+    if (error.response?.data) {
+      console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+    }
     res.status(error.response?.status || 500).json(error.response?.data || { error: 'Internal server error' });
   }
 });
@@ -126,11 +180,11 @@ app.get('/vehicle/:vehicleId', async (req, res) => {
     const country = req.query.country || 'it'; // Default to Italy if not specified
     
     if (!authHeader) {
-      console.warn('[Auth Error] Missing authorization header');
+      console.warn('\n----- AUTH ERROR: Missing authorization header -----');
       return res.status(401).json({ error: 'Authorization header required' });
     }
 
-    console.log(`[API Request] Single vehicle request (vehicleId=${vehicleId}, country=${country})`);
+    console.log(`\n----- API REQUEST: Single vehicle (vehicleId=${vehicleId}, country=${country}) -----`);
     const response = await axios({
       method: 'get',
       url: `https://carspark-api.dealerk.com/${country}/vehicle/${vehicleId}`,
@@ -140,17 +194,22 @@ app.get('/vehicle/:vehicleId', async (req, res) => {
       }
     });
     
-    console.log('[API Response] Single vehicle request successful:',
-      JSON.stringify({
-        vehicleId: response.data.id,
-        brand: response.data.brand,
-        model: response.data.model
-      })
-    );
+    console.log('\n----- API RESPONSE: Single vehicle -----');
+    console.log(JSON.stringify({
+      status: response.status,
+      vehicleId: response.data.id,
+      brand: response.data.brand,
+      model: response.data.model
+    }, null, 2));
     
     res.json(response.data);
   } catch (error) {
-    console.error('[API Error] Single vehicle request failed:', error.message, error.response?.data);
+    console.error('\n----- API ERROR: Single vehicle -----');
+    console.error(`Status: ${error.response?.status || 'Unknown'}`);
+    console.error(`Message: ${error.message}`);
+    if (error.response?.data) {
+      console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+    }
     res.status(error.response?.status || 500).json(error.response?.data || { error: 'Internal server error' });
   }
 });
@@ -163,11 +222,11 @@ app.get('/vehicle/:vehicleId/images/gallery', async (req, res) => {
     const country = req.query.country || 'it'; // Default to Italy if not specified
     
     if (!authHeader) {
-      console.warn('[Auth Error] Missing authorization header');
+      console.warn('\n----- AUTH ERROR: Missing authorization header -----');
       return res.status(401).json({ error: 'Authorization header required' });
     }
 
-    console.log(`[API Request] Vehicle gallery images request (vehicleId=${vehicleId}, country=${country})`);
+    console.log(`\n----- API REQUEST: Gallery images (vehicleId=${vehicleId}, country=${country}) -----`);
     const response = await axios({
       method: 'get',
       url: `https://carspark-api.dealerk.com/${country}/vehicle/${vehicleId}/images/gallery`,
@@ -177,16 +236,20 @@ app.get('/vehicle/:vehicleId/images/gallery', async (req, res) => {
       }
     });
     
-    console.log('[API Response] Vehicle gallery images successful:',
-      JSON.stringify({
-        status: response.status,
-        imageCount: Array.isArray(response.data) ? response.data.length : 'N/A'
-      })
-    );
+    console.log('\n----- API RESPONSE: Gallery images -----');
+    console.log(JSON.stringify({
+      status: response.status,
+      imageCount: Array.isArray(response.data) ? response.data.length : 'N/A'
+    }, null, 2));
     
     res.json(response.data);
   } catch (error) {
-    console.error('[API Error] Vehicle gallery images failed:', error.message, error.response?.data);
+    console.error('\n----- API ERROR: Gallery images -----');
+    console.error(`Status: ${error.response?.status || 'Unknown'}`);
+    console.error(`Message: ${error.message}`);
+    if (error.response?.data) {
+      console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+    }
     res.status(error.response?.status || 500).json(error.response?.data || { error: 'Internal server error' });
   }
 });
@@ -199,12 +262,12 @@ app.post('/vehicle/:vehicleId/images/gallery/upload', upload.single('file'), asy
     const country = req.query.country || 'it'; // Default to Italy if not specified
     
     if (!authHeader) {
-      console.warn('[Auth Error] Missing authorization header');
+      console.warn('\n----- AUTH ERROR: Missing authorization header -----');
       return res.status(401).json({ error: 'Authorization header required' });
     }
     
     if (!req.file) {
-      console.warn('[Upload Error] No file provided');
+      console.warn('\n----- UPLOAD ERROR: No file provided -----');
       return res.status(400).json({ error: 'No file uploaded' });
     }
     
@@ -212,7 +275,12 @@ app.post('/vehicle/:vehicleId/images/gallery/upload', upload.single('file'), asy
     const fileSize = req.file.size;
     const fileName = req.file.originalname;
     
-    console.log(`[API Request] Vehicle gallery image upload (vehicleId=${vehicleId}, country=${country}, fileSize=${fileSize} bytes, fileName=${fileName})`);
+    console.log(`\n----- API REQUEST: Image upload (vehicleId=${vehicleId}, country=${country}) -----`);
+    console.log(JSON.stringify({
+      fileName: fileName,
+      fileSize: `${(fileSize / 1024).toFixed(2)} KB`,
+      mimeType: req.file.mimetype
+    }, null, 2));
     
     // Create form data for the file upload
     const formData = new FormData();
@@ -237,26 +305,30 @@ app.post('/vehicle/:vehicleId/images/gallery/upload', upload.single('file'), asy
       maxContentLength: Infinity
     });
     
-    console.log('[API Response] Vehicle gallery image upload successful:',
-      JSON.stringify({
-        status: response.status,
-        response: typeof response.data === 'object' ? response.data : 'Raw response'
-      })
-    );
+    console.log('\n----- API RESPONSE: Image upload -----');
+    console.log(JSON.stringify({
+      status: response.status,
+      response: typeof response.data === 'object' ? response.data : 'Raw response'
+    }, null, 2));
     
     // Clean up - remove the temporary file
     fs.unlink(filePath, (err) => {
-      if (err) console.error(`[Error] Failed to delete temporary file: ${filePath}`, err);
+      if (err) console.error(`\n----- FILE ERROR: Failed to delete temporary file: ${filePath} -----`);
     });
     
     res.json(response.data);
   } catch (error) {
-    console.error('[API Error] Vehicle gallery image upload failed:', error.message, error.response?.data);
+    console.error('\n----- API ERROR: Image upload -----');
+    console.error(`Status: ${error.response?.status || 'Unknown'}`);
+    console.error(`Message: ${error.message}`);
+    if (error.response?.data) {
+      console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+    }
     
     // Clean up temp file even if upload fails
     if (req.file && req.file.path) {
       fs.unlink(req.file.path, (err) => {
-        if (err) console.error(`[Error] Failed to delete temporary file: ${req.file.path}`, err);
+        if (err) console.error(`\n----- FILE ERROR: Failed to delete temporary file: ${req.file.path} -----`);
       });
     }
     
@@ -272,11 +344,11 @@ app.delete('/vehicle/:vehicleId/images/gallery/:imageId', async (req, res) => {
     const country = req.query.country || 'it'; // Default to Italy if not specified
     
     if (!authHeader) {
-      console.warn('[Auth Error] Missing authorization header');
+      console.warn('\n----- AUTH ERROR: Missing authorization header -----');
       return res.status(401).json({ error: 'Authorization header required' });
     }
 
-    console.log(`[API Request] Vehicle gallery image delete (vehicleId=${vehicleId}, imageId=${imageId}, country=${country})`);
+    console.log(`\n----- API REQUEST: Image delete (vehicleId=${vehicleId}, imageId=${imageId}, country=${country}) -----`);
     const response = await axios({
       method: 'delete',
       url: `https://carspark-api.dealerk.com/${country}/vehicle/${vehicleId}/images/gallery/${imageId}`,
@@ -286,16 +358,20 @@ app.delete('/vehicle/:vehicleId/images/gallery/:imageId', async (req, res) => {
       }
     });
     
-    console.log('[API Response] Vehicle gallery image delete successful:',
-      JSON.stringify({
-        status: response.status,
-        statusText: response.statusText
-      })
-    );
+    console.log('\n----- API RESPONSE: Image delete -----');
+    console.log(JSON.stringify({
+      status: response.status,
+      statusText: response.statusText
+    }, null, 2));
     
     res.status(response.status).send(response.data);
   } catch (error) {
-    console.error('[API Error] Vehicle gallery image delete failed:', error.message, error.response?.data);
+    console.error('\n----- API ERROR: Image delete -----');
+    console.error(`Status: ${error.response?.status || 'Unknown'}`);
+    console.error(`Message: ${error.message}`);
+    if (error.response?.data) {
+      console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+    }
     res.status(error.response?.status || 500).json(error.response?.data || { error: 'Internal server error' });
   }
 });

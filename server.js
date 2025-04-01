@@ -118,6 +118,43 @@ app.get('/vehicles', async (req, res) => {
   }
 });
 
+// Get single vehicle endpoint
+app.get('/vehicle/:vehicleId', async (req, res) => {
+  try {
+    const { vehicleId } = req.params;
+    const authHeader = req.headers.authorization;
+    const country = req.query.country || 'it'; // Default to Italy if not specified
+    
+    if (!authHeader) {
+      console.warn('[Auth Error] Missing authorization header');
+      return res.status(401).json({ error: 'Authorization header required' });
+    }
+
+    console.log(`[API Request] Single vehicle request (vehicleId=${vehicleId}, country=${country})`);
+    const response = await axios({
+      method: 'get',
+      url: `https://carspark-api.dealerk.com/${country}/vehicle/${vehicleId}`,
+      headers: {
+        'Authorization': authHeader,
+        'Accept': 'application/json'
+      }
+    });
+    
+    console.log('[API Response] Single vehicle request successful:',
+      JSON.stringify({
+        vehicleId: response.data.id,
+        brand: response.data.brand,
+        model: response.data.model
+      })
+    );
+    
+    res.json(response.data);
+  } catch (error) {
+    console.error('[API Error] Single vehicle request failed:', error.message, error.response?.data);
+    res.status(error.response?.status || 500).json(error.response?.data || { error: 'Internal server error' });
+  }
+});
+
 // Get vehicle gallery images
 app.get('/vehicle/:vehicleId/images/gallery', async (req, res) => {
   try {
@@ -273,6 +310,7 @@ app.listen(PORT, () => {
   console.log(`Available endpoints:`);
   console.log(`  - POST /auth/token`);
   console.log(`  - GET /vehicles`);
+  console.log(`  - GET /vehicle/:vehicleId`);
   console.log(`  - GET /vehicle/:vehicleId/images/gallery`);
   console.log(`  - POST /vehicle/:vehicleId/images/gallery/upload`);
   console.log(`  - DELETE /vehicle/:vehicleId/images/gallery/:imageId`);

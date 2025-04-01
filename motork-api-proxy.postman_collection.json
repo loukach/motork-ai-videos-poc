@@ -109,6 +109,43 @@
 			"response": []
 		},
 		{
+			"name": "Get Single Vehicle",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}",
+						"type": "text"
+					},
+					{
+						"key": "Accept",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "{{base_url}}/vehicle/{{vehicleId}}?country=it",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"vehicle",
+						"{{vehicleId}}"
+					],
+					"query": [
+						{
+							"key": "country",
+							"value": "it",
+							"description": "Country code (default: it)"
+						}
+					]
+				},
+				"description": "Get details of a specific vehicle by ID"
+			},
+			"response": []
+		},
+		{
 			"name": "Get Vehicle Gallery Images",
 			"request": {
 				"method": "GET",

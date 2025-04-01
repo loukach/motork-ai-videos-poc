@@ -7,9 +7,11 @@
     "start": "node server.js"
   },
   "dependencies": {
+    "@runwayml/sdk": "^1.4.4",
     "axios": "^1.6.2",
     "body-parser": "^1.20.2",
     "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
     "express": "^4.18.2",
     "form-data": "^4.0.2",
     "multer": "^1.4.5-lts.2"

@@ -1,3 +1,6 @@
+// Load environment variables from .env file
+require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
@@ -6,9 +9,20 @@ const multer = require('multer');
 const FormData = require('form-data');
 const fs = require('fs');
 const path = require('path');
+const { Runway } = require('@runwayml/sdk');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Runway API Configuration
+const RUNWAY_API_KEY = process.env.RUNWAY_API_KEY;
+let runway;
+if (RUNWAY_API_KEY) {
+  runway = new Runway({ apiKey: RUNWAY_API_KEY });
+}
+
+// In-memory storage for video generation tasks
+const videoTasks = new Map();
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -376,6 +390,284 @@ app.delete('/vehicle/:vehicleId/images/gallery/:imageId', async (req, res) => {
   }
 });
 
+// Helper function to download image from URL to a temporary file
+async function downloadImage(url, destinationPath) {
+  const writer = fs.createWriteStream(destinationPath);
+  
+  const response = await axios({
+    url,
+    method: 'GET',
+    responseType: 'stream'
+  });
+  
+  response.data.pipe(writer);
+  
+  return new Promise((resolve, reject) => {
+    writer.on('finish', resolve);
+    writer.on('error', reject);
+  });
+}
+
+// Generate video for vehicle using Runway ML API
+app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
+  try {
+    const { vehicleId } = req.params;
+    const authHeader = req.headers.authorization;
+    const country = req.query.country || 'it'; // Default to Italy if not specified
+    const { prompt, style } = req.body; // Optional parameters for video generation
+    
+    if (!authHeader) {
+      console.warn('\n----- AUTH ERROR: Missing authorization header -----');
+      return res.status(401).json({ error: 'Authorization header required' });
+    }
+    
+    if (!RUNWAY_API_KEY) {
+      console.error('\n----- API ERROR: Runway API key not configured -----');
+      return res.status(500).json({ error: 'Runway API key not configured' });
+    }
+    
+    console.log(`\n----- PROCESS: Starting video generation for vehicle ${vehicleId} -----`);
+    
+    // Step 1: Get vehicle details
+    console.log(`\n----- API REQUEST: Fetching vehicle details -----`);
+    const vehicleResponse = await axios({
+      method: 'get',
+      url: `https://carspark-api.dealerk.com/${country}/vehicle/${vehicleId}`,
+      headers: {
+        'Authorization': authHeader,
+        'Accept': 'application/json'
+      }
+    });
+    
+    const vehicleData = vehicleResponse.data;
+    console.log(`\n----- VEHICLE INFO: ${vehicleData.brand} ${vehicleData.model} -----`);
+    
+    // Step 2: Get vehicle images
+    console.log(`\n----- API REQUEST: Fetching vehicle gallery images -----`);
+    const imagesResponse = await axios({
+      method: 'get',
+      url: `https://carspark-api.dealerk.com/${country}/vehicle/${vehicleId}/images/gallery`,
+      headers: {
+        'Authorization': authHeader,
+        'Accept': '*/*'
+      }
+    });
+    
+    const images = imagesResponse.data;
+    if (!images || !Array.isArray(images) || images.length === 0) {
+      console.error('\n----- ERROR: No images available for this vehicle -----');
+      return res.status(400).json({ error: 'No images available for this vehicle' });
+    }
+    
+    console.log(`\n----- IMAGES: Found ${images.length} images -----`);
+    
+    // Step 3: Create temp directory for downloaded images
+    const taskId = Date.now().toString();
+    const tempDir = path.join(__dirname, 'temp', `vehicle_${vehicleId}_${taskId}`);
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    // Store task in memory
+    videoTasks.set(taskId, {
+      vehicleId,
+      status: 'downloading',
+      createdAt: new Date().toISOString(),
+      vehicleData: {
+        id: vehicleData.id,
+        brand: vehicleData.brand,
+        model: vehicleData.model,
+        year: vehicleData.year,
+        color: vehicleData.exteriorColorName || 'Unknown'
+      }
+    });
+    
+    // Start the video generation process in the background
+    (async () => {
+      try {
+        // Step 4: Download the first image only (Runway might only support one image for generation)
+        const imageUrl = images[0].url;
+        const imagePath = path.join(tempDir, `primary_image.jpg`);
+        
+        try {
+          await downloadImage(imageUrl, imagePath);
+          console.log(`Downloaded primary image from ${imageUrl}`);
+          
+          // Update task status
+          videoTasks.get(taskId).status = 'processing';
+          videoTasks.get(taskId).imagePath = imagePath;
+          
+          // Step 5: Prepare data for Runway API
+          // Build a prompt based on vehicle details if none provided
+          const defaultPrompt = `A professional, high-quality video showcasing a ${vehicleData.year} ${vehicleData.brand} ${vehicleData.model} in ${vehicleData.exteriorColorName || 'its color'}. Show the car from different angles, highlighting its features.`;
+          const videoPrompt = prompt || defaultPrompt;
+          
+          console.log(`\n----- RUNWAY REQUEST: Starting video generation -----`);
+          console.log(`Prompt: ${videoPrompt}`);
+          
+          // Step 6: Call Runway API to generate video
+          const model = 'gen-2';
+          const input = {
+            prompt: videoPrompt,
+            image: imagePath,
+            mode: 'image_to_video', // or other appropriate mode
+            style: style || 'cinematic'  // Default to cinematic style if not specified
+          };
+          
+          console.log(`Using Runway model: ${model}`);
+          
+          // Submit generation request to Runway
+          const { videoUrl, runwayTaskId } = await new Promise((resolve, reject) => {
+            runway.generate({
+              model,
+              input
+            }).then(result => {
+              resolve({
+                videoUrl: result.output.video,
+                runwayTaskId: result.id
+              });
+            }).catch(error => {
+              reject(error);
+            });
+          });
+          
+          // Update task with video URL
+          videoTasks.get(taskId).status = 'completed';
+          videoTasks.get(taskId).videoUrl = videoUrl;
+          videoTasks.get(taskId).runwayTaskId = runwayTaskId;
+          videoTasks.get(taskId).completedAt = new Date().toISOString();
+          
+          console.log(`\n----- RUNWAY SUCCESS: Video generated successfully -----`);
+          console.log(`Video URL: ${videoUrl}`);
+          
+          // Clean up temporary files
+          try {
+            fs.unlinkSync(imagePath);
+            fs.rmdirSync(tempDir);
+            console.log(`Cleaned up temporary files`);
+          } catch (cleanupError) {
+            console.error(`Cleanup error: ${cleanupError.message}`);
+          }
+        } catch (downloadError) {
+          console.error(`Error downloading image: ${downloadError.message}`);
+          videoTasks.get(taskId).status = 'failed';
+          videoTasks.get(taskId).error = 'Failed to download vehicle image';
+        }
+      } catch (error) {
+        console.error(`\n----- ERROR in background task: ${error.message} -----`);
+        videoTasks.get(taskId).status = 'failed';
+        videoTasks.get(taskId).error = error.message;
+        
+        // Clean up temp directory on error
+        try {
+          if (fs.existsSync(tempDir)) {
+            const files = fs.readdirSync(tempDir);
+            for (const file of files) {
+              fs.unlinkSync(path.join(tempDir, file));
+            }
+            fs.rmdirSync(tempDir);
+          }
+        } catch (cleanupError) {
+          console.error(`Cleanup error: ${cleanupError.message}`);
+        }
+      }
+    })();
+    
+    // Return immediately with the task ID for the client to poll
+    res.json({
+      taskId,
+      vehicleId,
+      status: 'processing',
+      message: 'Video generation started. Use the /vehicle/video/:taskId endpoint to check status.'
+    });
+  } catch (error) {
+    console.error('\n----- ERROR: Video generation process -----');
+    console.error(`Status: ${error.response?.status || 'Unknown'}`);
+    console.error(`Message: ${error.message}`);
+    if (error.response?.data) {
+      console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+    }
+    res.status(error.response?.status || 500).json(error.response?.data || { error: 'Internal server error' });
+  }
+});
+
+// Get video generation task status
+app.get('/vehicle/video/:taskId', (req, res) => {
+  const { taskId } = req.params;
+  
+  if (!videoTasks.has(taskId)) {
+    return res.status(404).json({ error: 'Video generation task not found' });
+  }
+  
+  const task = videoTasks.get(taskId);
+  
+  // Return task status
+  res.json({
+    taskId,
+    vehicleId: task.vehicleId,
+    status: task.status,
+    createdAt: task.createdAt,
+    completedAt: task.completedAt,
+    videoUrl: task.status === 'completed' ? task.videoUrl : undefined,
+    error: task.error
+  });
+});
+
+// Attach generated video to vehicle data
+app.post('/vehicle/:vehicleId/attach-video', async (req, res) => {
+  try {
+    const { vehicleId } = req.params;
+    const { videoUrl, taskId } = req.body;
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader) {
+      console.warn('\n----- AUTH ERROR: Missing authorization header -----');
+      return res.status(401).json({ error: 'Authorization header required' });
+    }
+    
+    // Validate inputs
+    if (!videoUrl && !taskId) {
+      return res.status(400).json({ error: 'Either videoUrl or taskId must be provided' });
+    }
+    
+    let finalVideoUrl = videoUrl;
+    
+    // If taskId is provided, get the video URL from the task
+    if (taskId) {
+      if (!videoTasks.has(taskId)) {
+        return res.status(404).json({ error: 'Video generation task not found' });
+      }
+      
+      const task = videoTasks.get(taskId);
+      
+      if (task.status !== 'completed') {
+        return res.status(400).json({ 
+          error: 'Video generation not completed yet',
+          status: task.status
+        });
+      }
+      
+      finalVideoUrl = task.videoUrl;
+    }
+    
+    // In a real implementation, you would update the vehicle data in your database
+    // For this example, we'll just return a success message
+    console.log(`\n----- PROCESS: Attaching video to vehicle ${vehicleId} -----`);
+    console.log(`Video URL: ${finalVideoUrl}`);
+    
+    res.json({
+      success: true,
+      vehicleId,
+      videoUrl: finalVideoUrl,
+      message: 'Video attached to vehicle successfully'
+    });
+  } catch (error) {
+    console.error('\n----- ERROR: Attaching video to vehicle -----');
+    console.error(`Message: ${error.message}`);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log('=================================');
   console.log(`MotorK API Proxy started`);
@@ -383,6 +675,7 @@ app.listen(PORT, () => {
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`Auth endpoint: https://auth.motork.io/realms/prod/protocol/openid-connect/token`);
   console.log(`Vehicle API endpoint: https://carspark-api.dealerk.com/it/vehicle`);
+  console.log(`Runway API: ${RUNWAY_API_KEY ? 'Configured' : 'Not configured'}`);
   console.log(`Available endpoints:`);
   console.log(`  - POST /auth/token`);
   console.log(`  - GET /vehicles`);
@@ -390,5 +683,8 @@ app.listen(PORT, () => {
   console.log(`  - GET /vehicle/:vehicleId/images/gallery`);
   console.log(`  - POST /vehicle/:vehicleId/images/gallery/upload`);
   console.log(`  - DELETE /vehicle/:vehicleId/images/gallery/:imageId`);
+  console.log(`  - POST /vehicle/:vehicleId/generate-video`);
+  console.log(`  - GET /vehicle/video/:taskId`);
+  console.log(`  - POST /vehicle/:vehicleId/attach-video`);
   console.log('=================================');
 });

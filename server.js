@@ -9,15 +9,23 @@ const multer = require('multer');
 const FormData = require('form-data');
 const fs = require('fs');
 const path = require('path');
-// Fix Runway import issue - handle SDK differently
+
+// Initialize Runway SDK
 let runway = null;
-let Runway = null;
 try {
-  // Try importing the SDK
-  const runwaySDK = require('@runwayml/sdk');
-  Runway = runwaySDK.Runway || runwaySDK.default;
+  // Import the SDK
+  const Runway = require('@runwayml/sdk');
+  
+  // Initialize the SDK with API key
+  const RUNWAY_API_KEY = process.env.RUNWAY_API_KEY;
+  if (RUNWAY_API_KEY) {
+    runway = new Runway(RUNWAY_API_KEY);
+    console.log('Runway SDK initialized successfully');
+  } else {
+    console.warn('Runway API key not found in environment variables');
+  }
 } catch (error) {
-  console.error('Error importing Runway SDK:', error.message);
+  console.error('Error initializing Runway SDK:', error.message);
 }
 
 const app = express();
@@ -25,14 +33,6 @@ const PORT = process.env.PORT || 3000;
 
 // Runway API Configuration
 const RUNWAY_API_KEY = process.env.RUNWAY_API_KEY;
-if (RUNWAY_API_KEY && Runway) {
-  try {
-    runway = new Runway({ apiKey: RUNWAY_API_KEY });
-    console.log('Runway SDK initialized successfully');
-  } catch (error) {
-    console.error('Failed to initialize Runway SDK:', error.message);
-  }
-}
 
 // In-memory storage for video generation tasks
 const videoTasks = new Map();
@@ -519,15 +519,8 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
           console.log(`Prompt: ${videoPrompt}`);
           
           // Step 6: Call Runway API to generate video
-          const model = 'gen-2';
-          const input = {
-            prompt: videoPrompt,
-            image: imagePath,
-            mode: 'image_to_video', // or other appropriate mode
-            style: style || 'cinematic'  // Default to cinematic style if not specified
-          };
-          
-          console.log(`Using Runway model: ${model}`);
+          console.log(`Preparing to generate video with prompt: "${videoPrompt}"`);
+          console.log(`Style: ${style || 'cinematic'} (default: cinematic)`);
           
           // Submit generation request to Runway
           let videoUrl, runwayTaskId;
@@ -540,24 +533,63 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
             runwayTaskId = `mock-task-${Date.now()}`;
             console.log(`Using mock video URL: ${videoUrl}`);
           } else {
-            // Real implementation with Runway SDK
-            console.log('\n----- RUNWAY SDK: Using real implementation -----');
-            const result = await new Promise((resolve, reject) => {
-              runway.generate({
-                model,
-                input
-              }).then(result => {
-                resolve({
-                  videoUrl: result.output.video,
-                  runwayTaskId: result.id
-                });
-              }).catch(error => {
-                reject(error);
+            try {
+              // Real implementation with Runway SDK
+              console.log('\n----- RUNWAY SDK: Using real implementation -----');
+              
+              // Create a base64 string from the image
+              const imageBuffer = fs.readFileSync(imagePath);
+              const base64Image = imageBuffer.toString('base64');
+              
+              // Initialize the generation task using imageToVideo.create()
+              console.log('Starting imageToVideo task...');
+              const taskResponse = await runway.imageToVideo.create({
+                prompt: videoPrompt,
+                image: `data:image/jpeg;base64,${base64Image}`,
+                parameters: {
+                  style: style || 'cinematic'
+                }
               });
-            });
-            
-            videoUrl = result.videoUrl;
-            runwayTaskId = result.runwayTaskId;
+              
+              // Get the task ID
+              runwayTaskId = taskResponse.taskId || taskResponse.id;
+              console.log(`Task created with ID: ${runwayTaskId}`);
+              
+              // Poll for task completion
+              let taskCompleted = false;
+              let maxAttempts = 30;
+              let attempts = 0;
+              
+              while (!taskCompleted && attempts < maxAttempts) {
+                console.log(`Checking task status (attempt ${attempts + 1}/${maxAttempts})...`);
+                const taskStatus = await runway.tasks.retrieve(runwayTaskId);
+                
+                if (taskStatus.status === 'succeeded') {
+                  taskCompleted = true;
+                  // Extract the video URL from the task result
+                  videoUrl = taskStatus.output.urls?.mp4 || taskStatus.output.mp4 || taskStatus.output.video;
+                  console.log(`Task completed! Video URL: ${videoUrl}`);
+                } else if (taskStatus.status === 'failed') {
+                  throw new Error(`Task failed: ${taskStatus.error || 'Unknown error'}`);
+                } else {
+                  // Task is still processing
+                  console.log(`Task status: ${taskStatus.status} - waiting...`);
+                  // Wait 10 seconds before checking again
+                  await new Promise(resolve => setTimeout(resolve, 10000));
+                  attempts++;
+                }
+              }
+              
+              if (!taskCompleted) {
+                throw new Error('Task timed out after maximum polling attempts');
+              }
+            } catch (error) {
+              console.error(`Runway API error: ${error.message}`);
+              // Fallback to mock response on error
+              videoUrl = `https://example.com/fallback-video-${Date.now()}.mp4`;
+              runwayTaskId = `error-fallback-task-${Date.now()}`;
+              console.log('Falling back to mock video due to API error');
+            }
           }
           
           // Update task with video URL

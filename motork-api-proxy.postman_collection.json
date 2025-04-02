@@ -276,125 +276,199 @@
 			"response": []
 		},
 		{
-			"name": "Generate Vehicle Video",
-			"event": [
+			"name": "Video Generation",
+			"item": [
 				{
-					"listen": "test",
-					"script": {
-						"exec": [
-							"var jsonData = pm.response.json();",
-							"",
-							"if (jsonData.taskId) {",
-							"    pm.collectionVariables.set(\"taskId\", jsonData.taskId);",
-							"    pm.test(\"Task ID saved to variable\", function() {",
-							"        pm.expect(pm.collectionVariables.get(\"taskId\")).to.not.be.empty;",
-							"    });",
-							"}"
+					"name": "1. Generate Vehicle Video",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = pm.response.json();",
+									"",
+									"if (jsonData.taskId) {",
+									"    pm.collectionVariables.set(\"taskId\", jsonData.taskId);",
+									"    pm.test(\"Task ID saved to variable\", function() {",
+									"        pm.expect(pm.collectionVariables.get(\"taskId\")).to.not.be.empty;",
+									"    });",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
 						],
-						"type": "text/javascript"
-					}
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"prompt\": \"A professional video showcasing this beautiful car from multiple angles. The video should highlight the car's elegant design and premium features.\",\n    \"style\": \"cinematic\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/vehicle/{{vehicleId}}/generate-video?country=it",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"vehicle",
+								"{{vehicleId}}",
+								"generate-video"
+							],
+							"query": [
+								{
+									"key": "country",
+									"value": "it",
+									"description": "Country code (default: it)"
+								}
+							]
+						},
+						"description": "Generate an AI video for a specific vehicle using RunwayML\n\n**Overview:**\n- Returns a taskId immediately (asynchronous process)\n- Uses the first image from the vehicle's gallery\n- Starts an asynchronous video generation process\n- Automatically saves the task ID to the variable {{taskId}}\n\n**Request Body:**\n- prompt: Text prompt for video generation (optional)\n- style: Video style - options include 'cinematic', 'realistic', etc. (optional)\n\n**Next Steps:**\n- Use the \"Check Video Generation Status\" endpoint to poll for completion\n- When status is 'completed', the response will include a videoUrl"
+					},
+					"response": []
+				},
+				{
+					"name": "2. Check Video Generation Status",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"var jsonData = pm.response.json();",
+									"",
+									"if (jsonData.status === 'completed' && jsonData.videoUrl) {",
+									"    pm.collectionVariables.set(\"videoUrl\", jsonData.videoUrl);",
+									"    pm.test(\"Video URL saved to variable\", function() {",
+									"        pm.expect(pm.collectionVariables.get(\"videoUrl\")).to.not.be.empty;",
+									"    });",
+									"    ",
+									"    // Also store the original URL if available",
+									"    if (jsonData.originalVideoUrl) {",
+									"        pm.collectionVariables.set(\"originalVideoUrl\", jsonData.originalVideoUrl);",
+									"        pm.test(\"Original video URL saved to variable\", function() {",
+									"            pm.expect(pm.collectionVariables.get(\"originalVideoUrl\")).to.not.be.empty;",
+									"        });",
+									"    }",
+									"    ",
+									"    pm.test(\"Video generation completed successfully\", function() {",
+									"        pm.expect(jsonData.status).to.equal('completed');",
+									"        pm.expect(jsonData.videoUrl).to.not.be.empty;",
+									"    });",
+									"} else if (jsonData.status === 'failed') {",
+									"    pm.test(\"Video generation failed\", function() {",
+									"        pm.expect(jsonData.error).to.not.be.null;",
+									"    });",
+									"} else {",
+									"    pm.test(\"Video still processing\", function() {",
+									"        pm.expect(jsonData.status).to.be.oneOf(['processing', 'processing_runway']);",
+									"    });",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/vehicle/video/{{taskId}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"vehicle",
+								"video",
+								"{{taskId}}"
+							]
+						},
+						"description": "Check the status of a video generation task\n\n**Overview:**\n- Polls the status of the video generation task by task ID\n- Returns the current status which can be one of:\n  - 'processing': Initial task setup\n  - 'processing_runway': Task sent to Runway API\n  - 'completed': Video is ready\n  - 'failed': Video generation failed\n\n**Response:**\n- When status is 'completed', the response includes:\n  - videoUrl: The shortened URL for the video via is.gd\n  - originalVideoUrl: The original Runway ML video URL\n- Test script automatically stores both URLs in the collection variables\n\n**Polling Strategy:**\n- Video generation can take several minutes\n- It's recommended to poll this endpoint periodically until you receive a 'completed' status"
+					},
+					"response": []
+				},
+				{
+					"name": "3. Attach Video to Vehicle",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"taskId\": \"{{taskId}}\"\n    // Alternatively, you can use direct videoUrl:\n    // \"videoUrl\": \"{{videoUrl}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/vehicle/{{vehicleId}}/attach-video",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"vehicle",
+								"{{vehicleId}}",
+								"attach-video"
+							]
+						},
+						"description": "Attach a generated video to a vehicle\n\n**Overview:**\n- Associates the generated video with a vehicle\n- Can use either taskId or direct videoUrl\n- Using taskId is preferred as the server will verify task completion\n\n**Request Body Options:**\n- Option 1: Use the taskId from a completed video generation task\n  ```json\n  {\n    \"taskId\": \"{{taskId}}\"\n  }\n  ```\n\n- Option 2: Use the direct videoUrl\n  ```json\n  {\n    \"videoUrl\": \"{{videoUrl}}\"\n  }\n  ```\n\n**Response:**\n- Response includes the shortened videoUrl and may also include originalVideoUrl if available\n\n**Note:**\n- This is a mock implementation and doesn't actually persist the video attachment\n- In a real implementation, this would update the vehicle data in a database"
+					},
+					"response": []
+				},
+				{
+					"name": "Attach Video with Direct URL",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{access_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json",
+								"type": "text"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"videoUrl\": \"{{videoUrl}}\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/vehicle/{{vehicleId}}/attach-video",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"vehicle",
+								"{{vehicleId}}",
+								"attach-video"
+							]
+						},
+						"description": "Alternative method to attach a video using a direct video URL\n\n**Overview:**\n- Associates a video directly via its URL without referencing a task\n- Useful when you have an external video URL you want to associate with the vehicle\n\n**Request Body:**\n```json\n{\n  \"videoUrl\": \"https://example.com/your-video.mp4\"\n}\n```\n\n**Note:**\n- This is a mock implementation and doesn't actually persist the video attachment\n- In a real implementation, this would update the vehicle data in a database"
+					},
+					"response": []
 				}
 			],
-			"request": {
-				"method": "POST",
-				"header": [
-					{
-						"key": "Authorization",
-						"value": "Bearer {{access_token}}",
-						"type": "text"
-					},
-					{
-						"key": "Content-Type",
-						"value": "application/json",
-						"type": "text"
-					}
-				],
-				"body": {
-					"mode": "raw",
-					"raw": "{\n    \"prompt\": \"A professional video showcasing this beautiful car from multiple angles. The video should highlight the car's elegant design and premium features.\",\n    \"style\": \"cinematic\"\n}"
-				},
-				"url": {
-					"raw": "{{base_url}}/vehicle/{{vehicleId}}/generate-video?country=it",
-					"host": [
-						"{{base_url}}"
-					],
-					"path": [
-						"vehicle",
-						"{{vehicleId}}",
-						"generate-video"
-					],
-					"query": [
-						{
-							"key": "country",
-							"value": "it",
-							"description": "Country code (default: it)"
-						}
-					]
-				},
-				"description": "Generate an AI video for a specific vehicle using RunwayML"
-			},
-			"response": []
-		},
-		{
-			"name": "Check Video Generation Status",
-			"request": {
-				"method": "GET",
-				"header": [
-					{
-						"key": "Authorization",
-						"value": "Bearer {{access_token}}",
-						"type": "text"
-					}
-				],
-				"url": {
-					"raw": "{{base_url}}/vehicle/video/{{taskId}}",
-					"host": [
-						"{{base_url}}"
-					],
-					"path": [
-						"vehicle",
-						"video",
-						"{{taskId}}"
-					]
-				},
-				"description": "Check the status of a video generation task"
-			},
-			"response": []
-		},
-		{
-			"name": "Attach Video to Vehicle",
-			"request": {
-				"method": "POST",
-				"header": [
-					{
-						"key": "Authorization",
-						"value": "Bearer {{access_token}}",
-						"type": "text"
-					},
-					{
-						"key": "Content-Type",
-						"value": "application/json",
-						"type": "text"
-					}
-				],
-				"body": {
-					"mode": "raw",
-					"raw": "{\n    \"taskId\": \"{{taskId}}\"\n}"
-				},
-				"url": {
-					"raw": "{{base_url}}/vehicle/{{vehicleId}}/attach-video",
-					"host": [
-						"{{base_url}}"
-					],
-					"path": [
-						"vehicle",
-						"{{vehicleId}}",
-						"attach-video"
-					]
-				},
-				"description": "Attach a generated video to a vehicle"
-			},
-			"response": []
+			"description": "This folder contains endpoints for the video generation workflow:\n\n1. Generate Vehicle Video - Start the video generation process\n2. Check Video Generation Status - Poll for completion of the video generation\n3. Attach Video to Vehicle - Associate the completed video with the vehicle"
 		}
 	],
 	"event": [
@@ -446,6 +520,18 @@
 			"value": "",
 			"type": "string",
 			"description": "The ID of a video generation task"
+		},
+		{
+			"key": "videoUrl",
+			"value": "",
+			"type": "string",
+			"description": "The shortened URL of a generated video"
+		},
+		{
+			"key": "originalVideoUrl",
+			"value": "",
+			"type": "string",
+			"description": "The original URL of a generated video from Runway ML"
 		}
 	]
 }

@@ -663,14 +663,39 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
           }
         }
         
+        // Shorten the video URL using is.gd
+        console.log(`\n----- SHORTENING VIDEO URL -----`);
+        let shortUrl = videoUrl;
+        try {
+          // URL encode the video URL
+          const encodedUrl = encodeURIComponent(videoUrl);
+          const shortenResponse = await axios({
+            method: 'get',
+            url: `https://is.gd/create.php?format=json&url=${encodedUrl}`
+          });
+          
+          if (shortenResponse.data && shortenResponse.data.shorturl) {
+            shortUrl = shortenResponse.data.shorturl;
+            console.log(`Successfully shortened URL: ${shortUrl}`);
+          } else {
+            console.log('URL shortener returned an unexpected response format');
+            console.log(JSON.stringify(shortenResponse.data, null, 2));
+          }
+        } catch (shortenError) {
+          console.error(`Failed to shorten URL: ${shortenError.message}`);
+          // Continue with the original URL if shortening fails
+        }
+
         // Update task with video URL and completion status
         videoTasks.get(taskId).status = 'completed';
-        videoTasks.get(taskId).videoUrl = videoUrl;
+        videoTasks.get(taskId).videoUrl = shortUrl;
+        videoTasks.get(taskId).originalVideoUrl = videoUrl;
         // runwayTaskId already stored earlier
         videoTasks.get(taskId).completedAt = new Date().toISOString();
         
         console.log(`\n----- RUNWAY SUCCESS: Video generated successfully -----`);
-        console.log(`Video URL: ${videoUrl}`);
+        console.log(`Original Video URL: ${videoUrl}`);
+        console.log(`Shortened Video URL: ${shortUrl}`);
       } catch (error) {
         console.error(`\n----- ERROR in background task: ${error.message} -----`);
         videoTasks.get(taskId).status = 'failed';
@@ -714,6 +739,7 @@ app.get('/vehicle/video/:taskId', (req, res) => {
     createdAt: task.createdAt,
     completedAt: task.completedAt,
     videoUrl: task.status === 'completed' ? task.videoUrl : undefined,
+    originalVideoUrl: task.status === 'completed' ? task.originalVideoUrl : undefined,
     runwayTaskId: task.runwayTaskId, // Include the Runway task ID
     error: task.error
   });
@@ -761,12 +787,23 @@ app.post('/vehicle/:vehicleId/attach-video', async (req, res) => {
     console.log(`\n----- PROCESS: Attaching video to vehicle ${vehicleId} -----`);
     console.log(`Video URL: ${finalVideoUrl}`);
     
-    res.json({
+    // If we're using a task, include both URLs in the response
+    const responseData = {
       success: true,
       vehicleId,
       videoUrl: finalVideoUrl,
       message: 'Video attached to vehicle successfully'
-    });
+    };
+    
+    // Include original URL if available from the task
+    if (taskId && videoTasks.has(taskId)) {
+      const task = videoTasks.get(taskId);
+      if (task.originalVideoUrl) {
+        responseData.originalVideoUrl = task.originalVideoUrl;
+      }
+    }
+    
+    res.json(responseData);
   } catch (error) {
     console.error('\n----- ERROR: Attaching video to vehicle -----');
     console.error(`Message: ${error.message}`);

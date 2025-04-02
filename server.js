@@ -521,6 +521,7 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
               promptText: videoPrompt,
               promptImage: imageUrl,
               model: 'gen3a_turbo',
+              duration: 5, // Duration in seconds
               parameters: {
                 style: style || 'cinematic'
               }
@@ -534,6 +535,10 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
             // If we get here, the call succeeded
             console.log('Successfully sent request to Runway API');
             runwayTaskId = taskResponse.taskId || taskResponse.id;
+            
+            // Store the runway task ID immediately in our task object
+            videoTasks.get(taskId).runwayTaskId = runwayTaskId;
+            videoTasks.get(taskId).status = 'processing_runway';
             
             console.log(`Task created with ID: ${runwayTaskId}`);
             
@@ -600,10 +605,10 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
           }
         }
         
-        // Update task with video URL
+        // Update task with video URL and completion status
         videoTasks.get(taskId).status = 'completed';
         videoTasks.get(taskId).videoUrl = videoUrl;
-        videoTasks.get(taskId).runwayTaskId = runwayTaskId;
+        // runwayTaskId already stored earlier
         videoTasks.get(taskId).completedAt = new Date().toISOString();
         
         console.log(`\n----- RUNWAY SUCCESS: Video generated successfully -----`);
@@ -651,6 +656,7 @@ app.get('/vehicle/video/:taskId', (req, res) => {
     createdAt: task.createdAt,
     completedAt: task.completedAt,
     videoUrl: task.status === 'completed' ? task.videoUrl : undefined,
+    runwayTaskId: task.runwayTaskId, // Include the Runway task ID
     error: task.error
   });
 });

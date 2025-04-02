@@ -274,6 +274,127 @@
 				"description": "Delete a specific image from a vehicle's gallery"
 			},
 			"response": []
+		},
+		{
+			"name": "Generate Vehicle Video",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"exec": [
+							"var jsonData = pm.response.json();",
+							"",
+							"if (jsonData.taskId) {",
+							"    pm.collectionVariables.set(\"taskId\", jsonData.taskId);",
+							"    pm.test(\"Task ID saved to variable\", function() {",
+							"        pm.expect(pm.collectionVariables.get(\"taskId\")).to.not.be.empty;",
+							"    });",
+							"}"
+						],
+						"type": "text/javascript"
+					}
+				}
+			],
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}",
+						"type": "text"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"prompt\": \"A professional video showcasing this beautiful car from multiple angles. The video should highlight the car's elegant design and premium features.\",\n    \"style\": \"cinematic\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/vehicle/{{vehicleId}}/generate-video?country=it",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"vehicle",
+						"{{vehicleId}}",
+						"generate-video"
+					],
+					"query": [
+						{
+							"key": "country",
+							"value": "it",
+							"description": "Country code (default: it)"
+						}
+					]
+				},
+				"description": "Generate an AI video for a specific vehicle using RunwayML"
+			},
+			"response": []
+		},
+		{
+			"name": "Check Video Generation Status",
+			"request": {
+				"method": "GET",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}",
+						"type": "text"
+					}
+				],
+				"url": {
+					"raw": "{{base_url}}/vehicle/video/{{taskId}}",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"vehicle",
+						"video",
+						"{{taskId}}"
+					]
+				},
+				"description": "Check the status of a video generation task"
+			},
+			"response": []
+		},
+		{
+			"name": "Attach Video to Vehicle",
+			"request": {
+				"method": "POST",
+				"header": [
+					{
+						"key": "Authorization",
+						"value": "Bearer {{access_token}}",
+						"type": "text"
+					},
+					{
+						"key": "Content-Type",
+						"value": "application/json",
+						"type": "text"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{\n    \"taskId\": \"{{taskId}}\"\n}"
+				},
+				"url": {
+					"raw": "{{base_url}}/vehicle/{{vehicleId}}/attach-video",
+					"host": [
+						"{{base_url}}"
+					],
+					"path": [
+						"vehicle",
+						"{{vehicleId}}",
+						"attach-video"
+					]
+				},
+				"description": "Attach a generated video to a vehicle"
+			},
+			"response": []
 		}
 	],
 	"event": [
@@ -319,6 +440,12 @@
 			"value": "",
 			"type": "string",
 			"description": "The ID of the image to delete"
+		},
+		{
+			"key": "taskId",
+			"value": "",
+			"type": "string",
+			"description": "The ID of a video generation task"
 		}
 	]
 }

@@ -551,7 +551,7 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
               console.log(`Checking task status (attempt ${attempts + 1}/${maxAttempts})...`);
               const taskStatus = await runway.tasks.retrieve(runwayTaskId);
               
-              if (taskStatus.status === 'succeeded') {
+              if (taskStatus.status === 'SUCCEEDED') {
                 taskCompleted = true;
                 // Extract the video URL from the task result
                 videoUrl = taskStatus.output.urls?.mp4 || taskStatus.output.mp4 || taskStatus.output.video;

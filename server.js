@@ -578,8 +578,12 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
                 console.log('Task output structure:');
                 console.log(JSON.stringify(taskStatus.output || {}, null, 2));
                 
-                // Try multiple output formats
-                if (taskStatus.output?.urls?.mp4) {
+                // Handle different output formats
+                if (Array.isArray(taskStatus.output) && taskStatus.output.length > 0) {
+                  // If output is an array, use the first element
+                  videoUrl = taskStatus.output[0];
+                  console.log('Found video URL in output array');
+                } else if (taskStatus.output?.urls?.mp4) {
                   videoUrl = taskStatus.output.urls.mp4;
                   console.log('Found video URL in output.urls.mp4');
                 } else if (taskStatus.output?.mp4) {

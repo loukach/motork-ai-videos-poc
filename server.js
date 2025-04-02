@@ -544,23 +544,69 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
             
             // Poll for task completion
             let taskCompleted = false;
-            let maxAttempts = 30;
+            let maxAttempts = 60; // Increase to 60 attempts (10 minutes at 10 second intervals)
             let attempts = 0;
             
+            console.log(`\n\n----- STARTING POLLING LOOP FOR TASK: ${runwayTaskId} -----`);
+            console.log(`Will check status every 10 seconds for up to ${maxAttempts} attempts`);
+            
             while (!taskCompleted && attempts < maxAttempts) {
-              console.log(`Checking task status (attempt ${attempts + 1}/${maxAttempts})...`);
-              const taskStatus = await runway.tasks.retrieve(runwayTaskId);
+              console.log(`\n----- CHECK ATTEMPT ${attempts + 1}/${maxAttempts} -----`);
+              console.log(`Time: ${new Date().toISOString()}`);
+              console.log(`Runway task ID: ${runwayTaskId}`);
               
-              if (taskStatus.status === 'SUCCEEDED') {
+              // Wrap in try/catch to handle potential errors during status check
+              try {
+                const taskStatus = await runway.tasks.retrieve(runwayTaskId);
+                
+                // Log the full task status response for debugging
+                console.log('FULL TASK STATUS RESPONSE:');
+                console.log(JSON.stringify(taskStatus, null, 2));
+                
+                // Case-insensitive status comparison for better reliability
+                const status = taskStatus && taskStatus.status ? taskStatus.status.toUpperCase() : 'UNKNOWN';
+                console.log(`Status normalized to: "${status}"`);
+                
+                // Update our task object with the current status
+                videoTasks.get(taskId).runwayStatus = status;
+                videoTasks.get(taskId).lastChecked = new Date().toISOString();
+              
+              if (status === 'SUCCEEDED' || status === 'SUCCESS' || status === 'COMPLETED') {
                 taskCompleted = true;
-                // Extract the video URL from the task result
-                videoUrl = taskStatus.output.urls?.mp4 || taskStatus.output.mp4 || taskStatus.output.video;
+                
+                // Log the full output structure
+                console.log('Task output structure:');
+                console.log(JSON.stringify(taskStatus.output || {}, null, 2));
+                
+                // Try multiple output formats
+                if (taskStatus.output?.urls?.mp4) {
+                  videoUrl = taskStatus.output.urls.mp4;
+                  console.log('Found video URL in output.urls.mp4');
+                } else if (taskStatus.output?.mp4) {
+                  videoUrl = taskStatus.output.mp4;
+                  console.log('Found video URL in output.mp4');
+                } else if (taskStatus.output?.video) {
+                  videoUrl = taskStatus.output.video;
+                  console.log('Found video URL in output.video');
+                } else if (taskStatus.output?.url) {
+                  videoUrl = taskStatus.output.url;
+                  console.log('Found video URL in output.url');
+                } else if (typeof taskStatus.output === 'string') {
+                  videoUrl = taskStatus.output;
+                  console.log('Using output string directly as URL');
+                } else {
+                  console.error('Could not find video URL in task output');
+                  throw new Error('Video URL not found in completed task');
+                }
+                
                 console.log(`Task completed! Video URL: ${videoUrl}`);
-              } else if (taskStatus.status === 'failed') {
+              } else if (status === 'FAILED' || status === 'ERROR') {
+                console.error('Task failed with error:');
+                console.error(JSON.stringify(taskStatus.error || 'Unknown error', null, 2));
                 throw new Error(`Task failed: ${taskStatus.error || 'Unknown error'}`);
               } else {
                 // Task is still processing
-                console.log(`Task status: ${taskStatus.status} - waiting...`);
+                console.log(`Task status: ${status} - waiting...`);
                 // Wait 10 seconds before checking again
                 await new Promise(resolve => setTimeout(resolve, 10000));
                 attempts++;

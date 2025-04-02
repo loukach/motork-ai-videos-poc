@@ -502,33 +502,39 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
         let videoUrl, runwayTaskId;
         
         if (!runway) {
-          console.log('\n----- RUNWAY SDK FALLBACK: Using mock implementation since SDK is not available -----');
-          // Mock implementation as fallback when SDK is not available
-          await new Promise(resolve => setTimeout(resolve, 3000));
-          videoUrl = `https://example.com/mock-video-${Date.now()}.mp4`;
-          runwayTaskId = `mock-task-${Date.now()}`;
-          console.log(`Using mock video URL: ${videoUrl}`);
+          console.log('\n----- RUNWAY SDK ERROR: SDK not available -----');
+          throw new Error('Runway SDK is not available. Make sure the API key is set and the SDK is properly installed.');
         } else {
           try {
             // Real implementation with Runway SDK
             console.log('\n----- RUNWAY SDK: Using real implementation -----');
             
-            // Use the image URL directly instead of downloading and converting to base64
+            // Use the direct image URL
             const imageUrl = selectedImage.url;
             console.log(`Using image URL: ${imageUrl}`);
             
             // Initialize the generation task using imageToVideo.create()
             console.log('Starting imageToVideo task...');
-            const taskResponse = await runway.imageToVideo.create({
-              prompt: videoPrompt,
-              image: imageUrl,
+            
+            // Log the request payload for debugging
+            const payload = {
+              promptText: videoPrompt,
+              promptImage: imageUrl,
+              model: 'gen3a_turbo',
               parameters: {
                 style: style || 'cinematic'
               }
-            });
+            };
+            console.log('Request payload to Runway API:');
+            console.log(JSON.stringify(payload, null, 2));
             
-            // Get the task ID
+            // Make the API call
+            const taskResponse = await runway.imageToVideo.create(payload);
+            
+            // If we get here, the call succeeded
+            console.log('Successfully sent request to Runway API');
             runwayTaskId = taskResponse.taskId || taskResponse.id;
+            
             console.log(`Task created with ID: ${runwayTaskId}`);
             
             // Poll for task completion
@@ -561,10 +567,36 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
             }
           } catch (error) {
             console.error(`Runway API error: ${error.message}`);
-            // Fallback to mock response on error
-            videoUrl = `https://example.com/fallback-video-${Date.now()}.mp4`;
-            runwayTaskId = `error-fallback-task-${Date.now()}`;
-            console.log('Falling back to mock video due to API error');
+            
+            // Additional detailed error logging
+            console.error('Detailed error information:');
+            if (error.response) {
+              // The request was made and the server responded with a status code
+              // that falls out of the range of 2xx
+              console.error(`Status: ${error.response.status}`);
+              console.error('Response headers:', JSON.stringify(error.response.headers, null, 2));
+              console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+            } else if (error.request) {
+              // The request was made but no response was received
+              console.error('No response received from server');
+              console.error('Request details:', error.request);
+            } else {
+              // Something happened in setting up the request that triggered an Error
+              console.error('Error details:', error.stack);
+            }
+            
+            // Try to get the first image directly to check if it's accessible
+            console.log('Attempting to check image accessibility...');
+            try {
+              const checkImageResponse = await axios.head(selectedImage.url);
+              console.log(`Image check result: HTTP ${checkImageResponse.status}`);
+              console.log('Image content type:', checkImageResponse.headers['content-type']);
+            } catch (imageCheckError) {
+              console.error(`Failed to access image: ${imageCheckError.message}`);
+            }
+            
+            // Re-throw the error to be caught by the outer try/catch
+            throw error;
           }
         }
         

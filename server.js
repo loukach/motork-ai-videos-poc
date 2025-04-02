@@ -811,6 +811,87 @@ app.post('/vehicle/:vehicleId/attach-video', async (req, res) => {
   }
 });
 
+// Update vehicle field endpoint
+app.put('/vehicle/:vehicleId/update-field', async (req, res) => {
+  try {
+    const { vehicleId } = req.params;
+    const { field, value } = req.body;
+    const authHeader = req.headers.authorization;
+    const country = req.query.country || 'it'; // Default to Italy if not specified
+    
+    if (!authHeader) {
+      console.warn('\n----- AUTH ERROR: Missing authorization header -----');
+      return res.status(401).json({ error: 'Authorization header required' });
+    }
+
+    if (!field || value === undefined) {
+      console.warn('\n----- REQUEST ERROR: Missing required fields -----');
+      return res.status(400).json({ error: 'Both field and value must be provided' });
+    }
+
+    // Step 1: Get current vehicle data
+    console.log(`\n----- API REQUEST: Fetching vehicle data (vehicleId=${vehicleId}, country=${country}) -----`);
+    const vehicleResponse = await axios({
+      method: 'get',
+      url: `https://carspark-api.dealerk.com/${country}/vehicle/${vehicleId}`,
+      headers: {
+        'Authorization': authHeader,
+        'Accept': 'application/json'
+      }
+    });
+    
+    const vehicleData = vehicleResponse.data;
+    console.log('\n----- API RESPONSE: Vehicle data fetched -----');
+    
+    // Step 2: Update the specified field
+    if (!(field in vehicleData)) {
+      console.warn(`\n----- REQUEST ERROR: Field '${field}' not found in vehicle data -----`);
+      return res.status(400).json({ error: `Field '${field}' not found in vehicle data` });
+    }
+    
+    console.log(`\n----- UPDATE: Changing field '${field}' from '${vehicleData[field]}' to '${value}' -----`);
+    vehicleData[field] = value;
+    
+    // Step 3: Send updated data back to the API
+    console.log(`\n----- API REQUEST: Updating vehicle data (vehicleId=${vehicleId}, country=${country}) -----`);
+    const updateResponse = await axios({
+      method: 'put',
+      url: `https://carspark-api.dealerk.com/${country}/vehicle/${vehicleId}`,
+      headers: {
+        'Authorization': authHeader,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      data: vehicleData
+    });
+    
+    console.log('\n----- API RESPONSE: Vehicle data updated -----');
+    console.log(JSON.stringify({
+      status: updateResponse.status,
+      vehicleId: updateResponse.data.id,
+      updatedField: field,
+      newValue: value
+    }, null, 2));
+    
+    res.json({
+      success: true,
+      vehicleId,
+      updatedField: field,
+      oldValue: vehicleResponse.data[field],
+      newValue: value,
+      ...updateResponse.data
+    });
+  } catch (error) {
+    console.error('\n----- API ERROR: Update vehicle field -----');
+    console.error(`Status: ${error.response?.status || 'Unknown'}`);
+    console.error(`Message: ${error.message}`);
+    if (error.response?.data) {
+      console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+    }
+    res.status(error.response?.status || 500).json(error.response?.data || { error: 'Internal server error' });
+  }
+});
+
 app.listen(PORT, () => {
   console.log('=================================');
   console.log(`MotorK API Proxy started`);
@@ -829,5 +910,6 @@ app.listen(PORT, () => {
   console.log(`  - POST /vehicle/:vehicleId/generate-video`);
   console.log(`  - GET /vehicle/video/:taskId`);
   console.log(`  - POST /vehicle/:vehicleId/attach-video`);
+  console.log(`  - PUT /vehicle/:vehicleId/update-field`);
   console.log('=================================');
 });

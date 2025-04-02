@@ -404,23 +404,7 @@ app.delete('/vehicle/:vehicleId/images/gallery/:imageId', async (req, res) => {
   }
 });
 
-// Helper function to download image from URL to a temporary file
-async function downloadImage(url, destinationPath) {
-  const writer = fs.createWriteStream(destinationPath);
-  
-  const response = await axios({
-    url,
-    method: 'GET',
-    responseType: 'stream'
-  });
-  
-  response.data.pipe(writer);
-  
-  return new Promise((resolve, reject) => {
-    writer.on('finish', resolve);
-    writer.on('error', reject);
-  });
-}
+// Helper functions can be added here if needed
 
 // Generate video for vehicle using Runway ML API
 app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
@@ -475,17 +459,13 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
     
     console.log(`\n----- IMAGES: Found ${images.length} images -----`);
     
-    // Step 3: Create temp directory for downloaded images
+    // Generate a unique task ID
     const taskId = Date.now().toString();
-    const tempDir = path.join(__dirname, 'temp', `vehicle_${vehicleId}_${taskId}`);
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
     
     // Store task in memory
     videoTasks.set(taskId, {
       vehicleId,
-      status: 'downloading',
+      status: 'processing',
       createdAt: new Date().toISOString(),
       vehicleData: {
         id: vehicleData.id,
@@ -499,139 +479,107 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
     // Start the video generation process in the background
     (async () => {
       try {
-        // Step 4: Download the first image only (Runway might only support one image for generation)
-        const imageUrl = images[0].url;
-        const imagePath = path.join(tempDir, `primary_image.jpg`);
+        // Step 4: Use the first image for video generation
+        const selectedImage = images[0];
+        console.log(`Selected image with URL: ${selectedImage.url}`);
         
-        try {
-          await downloadImage(imageUrl, imagePath);
-          console.log(`Downloaded primary image from ${imageUrl}`);
-          
-          // Update task status
-          videoTasks.get(taskId).status = 'processing';
-          videoTasks.get(taskId).imagePath = imagePath;
-          
-          // Step 5: Prepare data for Runway API
-          // Build a prompt based on vehicle details if none provided
-          const defaultPrompt = `A professional, high-quality video showcasing a ${vehicleData.year} ${vehicleData.brand} ${vehicleData.model} in ${vehicleData.exteriorColorName || 'its color'}. Show the car from different angles, highlighting its features.`;
-          const videoPrompt = prompt || defaultPrompt;
-          
-          console.log(`\n----- RUNWAY REQUEST: Starting video generation -----`);
-          console.log(`Prompt: ${videoPrompt}`);
-          
-          // Step 6: Call Runway API to generate video
-          console.log(`Preparing to generate video with prompt: "${videoPrompt}"`);
-          console.log(`Style: ${style || 'cinematic'} (default: cinematic)`);
-          
-          // Submit generation request to Runway
-          let videoUrl, runwayTaskId;
-          
-          if (!runway) {
-            console.log('\n----- RUNWAY SDK FALLBACK: Using mock implementation since SDK is not available -----');
-            // Mock implementation as fallback when SDK is not available
-            await new Promise(resolve => setTimeout(resolve, 3000));
-            videoUrl = `https://example.com/mock-video-${Date.now()}.mp4`;
-            runwayTaskId = `mock-task-${Date.now()}`;
-            console.log(`Using mock video URL: ${videoUrl}`);
-          } else {
-            try {
-              // Real implementation with Runway SDK
-              console.log('\n----- RUNWAY SDK: Using real implementation -----');
-              
-              // Create a base64 string from the image
-              const imageBuffer = fs.readFileSync(imagePath);
-              const base64Image = imageBuffer.toString('base64');
-              
-              // Initialize the generation task using imageToVideo.create()
-              console.log('Starting imageToVideo task...');
-              const taskResponse = await runway.imageToVideo.create({
-                prompt: videoPrompt,
-                image: `data:image/jpeg;base64,${base64Image}`,
-                parameters: {
-                  style: style || 'cinematic'
-                }
-              });
-              
-              // Get the task ID
-              runwayTaskId = taskResponse.taskId || taskResponse.id;
-              console.log(`Task created with ID: ${runwayTaskId}`);
-              
-              // Poll for task completion
-              let taskCompleted = false;
-              let maxAttempts = 30;
-              let attempts = 0;
-              
-              while (!taskCompleted && attempts < maxAttempts) {
-                console.log(`Checking task status (attempt ${attempts + 1}/${maxAttempts})...`);
-                const taskStatus = await runway.tasks.retrieve(runwayTaskId);
-                
-                if (taskStatus.status === 'succeeded') {
-                  taskCompleted = true;
-                  // Extract the video URL from the task result
-                  videoUrl = taskStatus.output.urls?.mp4 || taskStatus.output.mp4 || taskStatus.output.video;
-                  console.log(`Task completed! Video URL: ${videoUrl}`);
-                } else if (taskStatus.status === 'failed') {
-                  throw new Error(`Task failed: ${taskStatus.error || 'Unknown error'}`);
-                } else {
-                  // Task is still processing
-                  console.log(`Task status: ${taskStatus.status} - waiting...`);
-                  // Wait 10 seconds before checking again
-                  await new Promise(resolve => setTimeout(resolve, 10000));
-                  attempts++;
-                }
-              }
-              
-              if (!taskCompleted) {
-                throw new Error('Task timed out after maximum polling attempts');
-              }
-            } catch (error) {
-              console.error(`Runway API error: ${error.message}`);
-              // Fallback to mock response on error
-              videoUrl = `https://example.com/fallback-video-${Date.now()}.mp4`;
-              runwayTaskId = `error-fallback-task-${Date.now()}`;
-              console.log('Falling back to mock video due to API error');
-            }
-          }
-          
-          // Update task with video URL
-          videoTasks.get(taskId).status = 'completed';
-          videoTasks.get(taskId).videoUrl = videoUrl;
-          videoTasks.get(taskId).runwayTaskId = runwayTaskId;
-          videoTasks.get(taskId).completedAt = new Date().toISOString();
-          
-          console.log(`\n----- RUNWAY SUCCESS: Video generated successfully -----`);
-          console.log(`Video URL: ${videoUrl}`);
-          
-          // Clean up temporary files
+        // Update task status data
+        videoTasks.get(taskId).imageUrl = selectedImage.url;
+        
+        // Step 5: Prepare data for Runway API
+        // Build a prompt based on vehicle details if none provided
+        const defaultPrompt = `A professional, high-quality video showcasing a ${vehicleData.year} ${vehicleData.brand} ${vehicleData.model} in ${vehicleData.exteriorColorName || 'its color'}. Show the car from different angles, highlighting its features.`;
+        const videoPrompt = prompt || defaultPrompt;
+        
+        console.log(`\n----- RUNWAY REQUEST: Starting video generation -----`);
+        console.log(`Prompt: ${videoPrompt}`);
+        
+        // Step 6: Call Runway API to generate video
+        console.log(`Preparing to generate video with prompt: "${videoPrompt}"`);
+        console.log(`Style: ${style || 'cinematic'} (default: cinematic)`);
+        
+        // Submit generation request to Runway
+        let videoUrl, runwayTaskId;
+        
+        if (!runway) {
+          console.log('\n----- RUNWAY SDK FALLBACK: Using mock implementation since SDK is not available -----');
+          // Mock implementation as fallback when SDK is not available
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          videoUrl = `https://example.com/mock-video-${Date.now()}.mp4`;
+          runwayTaskId = `mock-task-${Date.now()}`;
+          console.log(`Using mock video URL: ${videoUrl}`);
+        } else {
           try {
-            fs.unlinkSync(imagePath);
-            fs.rmdirSync(tempDir);
-            console.log(`Cleaned up temporary files`);
-          } catch (cleanupError) {
-            console.error(`Cleanup error: ${cleanupError.message}`);
+            // Real implementation with Runway SDK
+            console.log('\n----- RUNWAY SDK: Using real implementation -----');
+            
+            // Use the image URL directly instead of downloading and converting to base64
+            const imageUrl = selectedImage.url;
+            console.log(`Using image URL: ${imageUrl}`);
+            
+            // Initialize the generation task using imageToVideo.create()
+            console.log('Starting imageToVideo task...');
+            const taskResponse = await runway.imageToVideo.create({
+              prompt: videoPrompt,
+              image: imageUrl,
+              parameters: {
+                style: style || 'cinematic'
+              }
+            });
+            
+            // Get the task ID
+            runwayTaskId = taskResponse.taskId || taskResponse.id;
+            console.log(`Task created with ID: ${runwayTaskId}`);
+            
+            // Poll for task completion
+            let taskCompleted = false;
+            let maxAttempts = 30;
+            let attempts = 0;
+            
+            while (!taskCompleted && attempts < maxAttempts) {
+              console.log(`Checking task status (attempt ${attempts + 1}/${maxAttempts})...`);
+              const taskStatus = await runway.tasks.retrieve(runwayTaskId);
+              
+              if (taskStatus.status === 'succeeded') {
+                taskCompleted = true;
+                // Extract the video URL from the task result
+                videoUrl = taskStatus.output.urls?.mp4 || taskStatus.output.mp4 || taskStatus.output.video;
+                console.log(`Task completed! Video URL: ${videoUrl}`);
+              } else if (taskStatus.status === 'failed') {
+                throw new Error(`Task failed: ${taskStatus.error || 'Unknown error'}`);
+              } else {
+                // Task is still processing
+                console.log(`Task status: ${taskStatus.status} - waiting...`);
+                // Wait 10 seconds before checking again
+                await new Promise(resolve => setTimeout(resolve, 10000));
+                attempts++;
+              }
+            }
+            
+            if (!taskCompleted) {
+              throw new Error('Task timed out after maximum polling attempts');
+            }
+          } catch (error) {
+            console.error(`Runway API error: ${error.message}`);
+            // Fallback to mock response on error
+            videoUrl = `https://example.com/fallback-video-${Date.now()}.mp4`;
+            runwayTaskId = `error-fallback-task-${Date.now()}`;
+            console.log('Falling back to mock video due to API error');
           }
-        } catch (downloadError) {
-          console.error(`Error downloading image: ${downloadError.message}`);
-          videoTasks.get(taskId).status = 'failed';
-          videoTasks.get(taskId).error = 'Failed to download vehicle image';
         }
+        
+        // Update task with video URL
+        videoTasks.get(taskId).status = 'completed';
+        videoTasks.get(taskId).videoUrl = videoUrl;
+        videoTasks.get(taskId).runwayTaskId = runwayTaskId;
+        videoTasks.get(taskId).completedAt = new Date().toISOString();
+        
+        console.log(`\n----- RUNWAY SUCCESS: Video generated successfully -----`);
+        console.log(`Video URL: ${videoUrl}`);
       } catch (error) {
         console.error(`\n----- ERROR in background task: ${error.message} -----`);
         videoTasks.get(taskId).status = 'failed';
         videoTasks.get(taskId).error = error.message;
-        
-        // Clean up temp directory on error
-        try {
-          if (fs.existsSync(tempDir)) {
-            const files = fs.readdirSync(tempDir);
-            for (const file of files) {
-              fs.unlinkSync(path.join(tempDir, file));
-            }
-            fs.rmdirSync(tempDir);
-          }
-        } catch (cleanupError) {
-          console.error(`Cleanup error: ${cleanupError.message}`);
-        }
       }
     })();
     

@@ -570,8 +570,8 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
                 // Update our task object with the current status
                 videoTasks.get(taskId).runwayStatus = status;
                 videoTasks.get(taskId).lastChecked = new Date().toISOString();
-              
-              if (status === 'SUCCEEDED' || status === 'SUCCESS' || status === 'COMPLETED') {
+                
+                if (status === 'SUCCEEDED' || status === 'SUCCESS' || status === 'COMPLETED') {
                 taskCompleted = true;
                 
                 // Log the full output structure
@@ -608,6 +608,14 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
                 // Task is still processing
                 console.log(`Task status: ${status} - waiting...`);
                 // Wait 10 seconds before checking again
+                await new Promise(resolve => setTimeout(resolve, 10000));
+                attempts++;
+              }
+              } catch (pollError) {
+                console.error(`Error during status polling: ${pollError.message}`);
+                
+                // Continue polling despite error
+                console.log('Will retry polling in 10 seconds...');
                 await new Promise(resolve => setTimeout(resolve, 10000));
                 attempts++;
               }

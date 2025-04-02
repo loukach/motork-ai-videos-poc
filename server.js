@@ -38,6 +38,28 @@ const RUNWAY_API_KEY = process.env.RUNWAY_API_KEY;
 // In-memory storage for video generation tasks
 const videoTasks = new Map();
 
+// Task cleanup function - removes tasks older than 24 hours
+const cleanupOldTasks = () => {
+  const now = new Date();
+  const oneDayMs = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+  let removedCount = 0;
+  
+  for (const [taskId, task] of videoTasks.entries()) {
+    const createdAt = new Date(task.createdAt);
+    if (now - createdAt > oneDayMs) {
+      videoTasks.delete(taskId);
+      removedCount++;
+    }
+  }
+  
+  if (removedCount > 0) {
+    console.log(`Cleanup: Removed ${removedCount} tasks older than 24 hours`);
+  }
+};
+
+// Run cleanup every hour
+setInterval(cleanupOldTasks, 60 * 60 * 1000);
+
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -63,59 +85,104 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Request logging middleware
+// Optimized request logging middleware
 app.use((req, res, next) => {
   const timestamp = new Date().toISOString();
   const reqId = Date.now().toString(36).slice(-4);
   
-  // Log request with clear separation
+  // Log minimal request info
   console.log(`\n----- REQUEST [${reqId}] ${timestamp} -----`);
   console.log(`${req.method} ${req.url}`);
   
-  // Prettify headers - hide authorization token details
-  const headers = { ...req.headers };
-  if (headers.authorization) {
-    headers.authorization = headers.authorization.replace(/Bearer .+/, 'Bearer [TOKEN_HIDDEN]');
-  }
-  console.log('Headers:', JSON.stringify(headers, null, 2));
-  
-  // Only log query and body if they exist
+  // Log essential query parameters if present
   if (Object.keys(req.query).length > 0) {
-    console.log('Query:', JSON.stringify(req.query, null, 2));
+    // Only log country parameter if present as it's important
+    const relevantParams = {};
+    if (req.query.country) relevantParams.country = req.query.country;
+    if (Object.keys(relevantParams).length > 0) {
+      console.log('Query:', JSON.stringify(relevantParams));
+    }
   }
   
-  // Sanitize password in auth requests
-  let bodyToLog = req.body;
-  if (req.url.includes('/auth/token') && bodyToLog.password) {
-    bodyToLog = { ...bodyToLog, password: '[HIDDEN]' };
-  }
-  
+  // Only log body for specific endpoints and only relevant fields
   if (req.body && Object.keys(req.body).length > 0) {
-    console.log('Body:', JSON.stringify(bodyToLog, null, 2));
+    const endpoint = req.path.split('/').pop();
+    const relevantBody = {};
+    
+    // Only include specific fields based on endpoint
+    if (endpoint === 'generate-video') {
+      // For video generation, only log if a custom prompt was provided
+      if (req.body.prompt) relevantBody.prompt = req.body.prompt;
+      if (req.body.style) relevantBody.style = req.body.style;
+    } else if (endpoint === 'update-field') {
+      // For field updates, log which field is being updated
+      if (req.body.field) relevantBody.field = req.body.field;
+      // Only show value if it's not sensitive (assuming videoUrl is safe)
+      if (req.body.field === 'videoUrl' && req.body.value) {
+        relevantBody.value = req.body.value;
+      }
+    } else if (req.url.includes('/auth/token')) {
+      // For auth, only show username
+      if (req.body.username) relevantBody.username = req.body.username;
+      if (req.body.password) relevantBody.password = '[HIDDEN]';
+    }
+    
+    if (Object.keys(relevantBody).length > 0) {
+      console.log('Body:', JSON.stringify(relevantBody));
+    }
   }
   
-  // Capture response
+  // Capture response - simplified
   const originalSend = res.send;
   res.send = function(body) {
     console.log(`\n----- RESPONSE [${reqId}] -----`);
     
-    // Handle both string and object responses
-    if (typeof body === 'string') {
-      // Try to parse as JSON for better formatting
-      try {
-        if (body.startsWith('{') || body.startsWith('[')) {
-          const jsonBody = JSON.parse(body);
-          console.log(JSON.stringify(jsonBody, null, 2).substring(0, 500) + 
-                    (JSON.stringify(jsonBody).length > 500 ? '...' : ''));
+    // For responses, only log a summary based on the endpoint type
+    try {
+      let responseToLog;
+      
+      if (typeof body === 'string' && (body.startsWith('{') || body.startsWith('['))) {
+        const jsonBody = JSON.parse(body);
+        
+        // Create a simplified response summary
+        if (Array.isArray(jsonBody)) {
+          responseToLog = `Array with ${jsonBody.length} items`;
+        } else if (typeof jsonBody === 'object') {
+          const summary = {};
+          
+          // Status info is always useful
+          if (jsonBody.status) summary.status = jsonBody.status;
+          if (jsonBody.success !== undefined) summary.success = jsonBody.success;
+          if (jsonBody.error) summary.error = jsonBody.error;
+          
+          // Task ID for async operations
+          if (jsonBody.taskId) summary.taskId = jsonBody.taskId;
+          
+          // For vehicle data, just show key identifiers
+          if (jsonBody.vehicleId) summary.vehicleId = jsonBody.vehicleId;
+          if (jsonBody.id) summary.id = jsonBody.id;
+          
+          // For video operations, show video URL status
+          if (jsonBody.videoUrl) summary.videoUrl = '(URL available)';
+          
+          // For collections, just show count
+          if (jsonBody.content && Array.isArray(jsonBody.content)) {
+            summary.items = jsonBody.content.length;
+          }
+          
+          responseToLog = JSON.stringify(summary);
         } else {
-          console.log(body.substring(0, 500) + (body.length > 500 ? '...' : ''));
+          responseToLog = JSON.stringify(jsonBody);
         }
-      } catch (e) {
-        console.log(body.substring(0, 500) + (body.length > 500 ? '...' : ''));
+      } else if (typeof body === 'string') {
+        responseToLog = body.length > 100 ? body.substring(0, 100) + '...' : body;
+      } else {
+        responseToLog = 'Non-string response';
       }
-    } else {
-      console.log(JSON.stringify(body, null, 2).substring(0, 500) + 
-                (JSON.stringify(body).length > 500 ? '...' : ''));
+      
+      console.log(responseToLog);
+    } catch (e) {
+      console.log('Response: (unable to parse)');
     }
     
     return originalSend.apply(res, arguments);
@@ -476,6 +543,14 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
       }
     });
     
+    // Capture what we need from the request before starting the background task
+    const requestAuth = authHeader;
+    const requestCountry = country;
+    const requestProtocol = req.protocol;
+    const requestHost = req.get('host');
+    // Create a local copy of vehicleId for this task to avoid closure issues
+    const taskVehicleId = vehicleId;
+    
     // Start the video generation process in the background
     (async () => {
       try {
@@ -516,7 +591,7 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
             // Initialize the generation task using imageToVideo.create()
             console.log('Starting imageToVideo task...');
             
-            // Log the request payload for debugging
+            // Prepare request payload
             const payload = {
               promptText: videoPrompt,
               promptImage: imageUrl,
@@ -526,8 +601,7 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
                 style: style || 'cinematic'
               }
             };
-            console.log('Request payload to Runway API:');
-            console.log(JSON.stringify(payload, null, 2));
+            console.log(`Runway request: ${style || 'cinematic'} style, ${payload.duration}s duration`);
             
             // Make the API call
             const taskResponse = await runway.imageToVideo.create(payload);
@@ -547,74 +621,54 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
             let maxAttempts = 60; // Increase to 60 attempts (10 minutes at 10 second intervals)
             let attempts = 0;
             
-            console.log(`\n\n----- STARTING POLLING LOOP FOR TASK: ${runwayTaskId} -----`);
-            console.log(`Will check status every 10 seconds for up to ${maxAttempts} attempts`);
+            console.log(`Polling Runway task ${runwayTaskId} (every 10s, max ${maxAttempts} attempts)`);
             
             while (!taskCompleted && attempts < maxAttempts) {
-              console.log(`\n----- CHECK ATTEMPT ${attempts + 1}/${maxAttempts} -----`);
-              console.log(`Time: ${new Date().toISOString()}`);
-              console.log(`Runway task ID: ${runwayTaskId}`);
-              
               // Wrap in try/catch to handle potential errors during status check
               try {
                 const taskStatus = await runway.tasks.retrieve(runwayTaskId);
                 
-                // Log the full task status response for debugging
-                console.log('FULL TASK STATUS RESPONSE:');
-                console.log(JSON.stringify(taskStatus, null, 2));
-                
                 // Case-insensitive status comparison for better reliability
                 const status = taskStatus && taskStatus.status ? taskStatus.status.toUpperCase() : 'UNKNOWN';
-                console.log(`Status normalized to: "${status}"`);
+                attempts++;
                 
                 // Update our task object with the current status
                 videoTasks.get(taskId).runwayStatus = status;
                 videoTasks.get(taskId).lastChecked = new Date().toISOString();
                 
                 if (status === 'SUCCEEDED' || status === 'SUCCESS' || status === 'COMPLETED') {
-                taskCompleted = true;
-                
-                // Log the full output structure
-                console.log('Task output structure:');
-                console.log(JSON.stringify(taskStatus.output || {}, null, 2));
-                
-                // Handle different output formats
-                if (Array.isArray(taskStatus.output) && taskStatus.output.length > 0) {
-                  // If output is an array, use the first element
-                  videoUrl = taskStatus.output[0];
-                  console.log('Found video URL in output array');
-                } else if (taskStatus.output?.urls?.mp4) {
-                  videoUrl = taskStatus.output.urls.mp4;
-                  console.log('Found video URL in output.urls.mp4');
-                } else if (taskStatus.output?.mp4) {
-                  videoUrl = taskStatus.output.mp4;
-                  console.log('Found video URL in output.mp4');
-                } else if (taskStatus.output?.video) {
-                  videoUrl = taskStatus.output.video;
-                  console.log('Found video URL in output.video');
-                } else if (taskStatus.output?.url) {
-                  videoUrl = taskStatus.output.url;
-                  console.log('Found video URL in output.url');
-                } else if (typeof taskStatus.output === 'string') {
-                  videoUrl = taskStatus.output;
-                  console.log('Using output string directly as URL');
+                  taskCompleted = true;
+                  console.log(`Task completed successfully after ${attempts} attempts`);
+                  
+                  // Handle different output formats
+                  if (Array.isArray(taskStatus.output) && taskStatus.output.length > 0) {
+                    videoUrl = taskStatus.output[0];
+                  } else if (taskStatus.output?.urls?.mp4) {
+                    videoUrl = taskStatus.output.urls.mp4;
+                  } else if (taskStatus.output?.mp4) {
+                    videoUrl = taskStatus.output.mp4;
+                  } else if (taskStatus.output?.video) {
+                    videoUrl = taskStatus.output.video;
+                  } else if (taskStatus.output?.url) {
+                    videoUrl = taskStatus.output.url;
+                  } else if (typeof taskStatus.output === 'string') {
+                    videoUrl = taskStatus.output;
+                  } else {
+                    throw new Error('Video URL not found in completed task');
+                  }
+                  
+                  console.log(`Video URL retrieved: ${videoUrl.substring(0, 60)}...`);
+                } else if (status === 'FAILED' || status === 'ERROR') {
+                  console.error(`Runway task failed: ${taskStatus.error || 'Unknown error'}`);
+                  throw new Error(`Task failed: ${taskStatus.error || 'Unknown error'}`);
                 } else {
-                  console.error('Could not find video URL in task output');
-                  throw new Error('Video URL not found in completed task');
+                  // Task is still processing
+                  if (attempts % 3 === 0) { // Only log every 3rd check to reduce noise
+                    console.log(`Still processing: ${status} (attempt ${attempts}/${maxAttempts})`);
+                  }
+                  // Wait 10 seconds before checking again
+                  await new Promise(resolve => setTimeout(resolve, 10000));
                 }
-                
-                console.log(`Task completed! Video URL: ${videoUrl}`);
-              } else if (status === 'FAILED' || status === 'ERROR') {
-                console.error('Task failed with error:');
-                console.error(JSON.stringify(taskStatus.error || 'Unknown error', null, 2));
-                throw new Error(`Task failed: ${taskStatus.error || 'Unknown error'}`);
-              } else {
-                // Task is still processing
-                console.log(`Task status: ${status} - waiting...`);
-                // Wait 10 seconds before checking again
-                await new Promise(resolve => setTimeout(resolve, 10000));
-                attempts++;
-              }
               } catch (pollError) {
                 console.error(`Error during status polling: ${pollError.message}`);
                 
@@ -664,7 +718,7 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
         }
         
         // Shorten the video URL using is.gd
-        console.log(`\n----- SHORTENING VIDEO URL -----`);
+        console.log(`Shortening video URL...`);
         let shortUrl = videoUrl;
         try {
           // URL encode the video URL
@@ -676,13 +730,12 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
           
           if (shortenResponse.data && shortenResponse.data.shorturl) {
             shortUrl = shortenResponse.data.shorturl;
-            console.log(`Successfully shortened URL: ${shortUrl}`);
+            console.log(`URL shortened successfully: ${shortUrl}`);
           } else {
-            console.log('URL shortener returned an unexpected response format');
-            console.log(JSON.stringify(shortenResponse.data, null, 2));
+            console.log('URL shortener returned unexpected response, using original URL');
           }
         } catch (shortenError) {
-          console.error(`Failed to shorten URL: ${shortenError.message}`);
+          console.log(`URL shortening failed, using original URL: ${shortenError.message}`);
           // Continue with the original URL if shortening fails
         }
 
@@ -693,11 +746,54 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
         // runwayTaskId already stored earlier
         videoTasks.get(taskId).completedAt = new Date().toISOString();
         
-        console.log(`\n----- RUNWAY SUCCESS: Video generated successfully -----`);
-        console.log(`Original Video URL: ${videoUrl}`);
-        console.log(`Shortened Video URL: ${shortUrl}`);
+        console.log(`Video generation completed successfully.`);
+        
+        // Automatically update the vehicle videoUrl field with the shortened URL
+        // Implement with retry logic
+        let updateSuccess = false;
+        let retryCount = 0;
+        const maxRetries = 3;
+        
+        console.log(`Updating vehicle ${taskVehicleId} videoUrl field with generated video...`);
+        
+        while (!updateSuccess && retryCount < maxRetries) {
+          try {
+            // Call the update-field endpoint using the captured request details
+            const updateResponse = await axios({
+              method: 'put',
+              url: `${requestProtocol}://${requestHost}/vehicle/${taskVehicleId}/update-field`,
+              headers: {
+                'Authorization': requestAuth,
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+              },
+              data: {
+                field: 'videoUrl',
+                value: shortUrl
+              }
+            });
+            
+            console.log(`Vehicle ${taskVehicleId} videoUrl updated successfully.`);
+            
+            // Update the task data to indicate vehicle was updated
+            videoTasks.get(taskId).vehicleUpdated = true;
+            updateSuccess = true;
+          } catch (updateError) {
+            retryCount++;
+            
+            if (retryCount < maxRetries) {
+              // Wait before retrying (exponential backoff)
+              const retryDelay = Math.pow(2, retryCount) * 1000; // 2s, 4s, 8s
+              console.log(`Update attempt ${retryCount}/${maxRetries} failed. Retrying in ${retryDelay/1000}s...`);
+              await new Promise(resolve => setTimeout(resolve, retryDelay));
+            } else {
+              console.error(`Failed to update vehicle videoUrl after ${maxRetries} attempts: ${updateError.message}`);
+              // The video is still generated successfully even if update fails
+            }
+          }
+        }
       } catch (error) {
-        console.error(`\n----- ERROR in background task: ${error.message} -----`);
+        console.error(`Video generation failed: ${error.message}`);
         videoTasks.get(taskId).status = 'failed';
         videoTasks.get(taskId).error = error.message;
       }
@@ -741,6 +837,7 @@ app.get('/vehicle/video/:taskId', (req, res) => {
     videoUrl: task.status === 'completed' ? task.videoUrl : undefined,
     originalVideoUrl: task.status === 'completed' ? task.originalVideoUrl : undefined,
     runwayTaskId: task.runwayTaskId, // Include the Runway task ID
+    vehicleUpdated: task.vehicleUpdated || false, // Include whether the vehicle was updated
     error: task.error
   });
 });
@@ -894,22 +991,8 @@ app.put('/vehicle/:vehicleId/update-field', async (req, res) => {
 
 app.listen(PORT, () => {
   console.log('=================================');
-  console.log(`MotorK API Proxy started`);
-  console.log(`Server running on port: ${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`Auth endpoint: https://auth.motork.io/realms/prod/protocol/openid-connect/token`);
-  console.log(`Vehicle API endpoint: https://carspark-api.dealerk.com/it/vehicle`);
-  console.log(`Runway API: ${RUNWAY_API_KEY ? 'Configured' : 'Not configured'}`);
-  console.log(`Available endpoints:`);
-  console.log(`  - POST /auth/token`);
-  console.log(`  - GET /vehicles`);
-  console.log(`  - GET /vehicle/:vehicleId`);
-  console.log(`  - GET /vehicle/:vehicleId/images/gallery`);
-  console.log(`  - POST /vehicle/:vehicleId/images/gallery/upload`);
-  console.log(`  - DELETE /vehicle/:vehicleId/images/gallery/:imageId`);
-  console.log(`  - POST /vehicle/:vehicleId/generate-video`);
-  console.log(`  - GET /vehicle/video/:taskId`);
-  console.log(`  - POST /vehicle/:vehicleId/attach-video`);
-  console.log(`  - PUT /vehicle/:vehicleId/update-field`);
+  console.log(`MotorK AI Videos POC Server`);
+  console.log(`Running on port: ${PORT} | Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`Runway API: ${RUNWAY_API_KEY ? 'Configured ✓' : 'Not configured ✗'}`);
   console.log('=================================');
 });

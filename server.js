@@ -191,7 +191,7 @@ app.post('/auth/token', async (req, res) => {
 // Vehicle listing endpoint
 app.get('/vehicles', requireAuth, async (req, res) => {
   try {
-    const { page = 0, size = 10 } = req.query;
+    const { page = 0, size = 20 } = req.query;
     logger.info('Vehicles', `Listing vehicles (page=${page}, size=${size}, country=${req.country})`);
 
     const response = await vehicleService.listVehicles({
@@ -203,10 +203,10 @@ app.get('/vehicles', requireAuth, async (req, res) => {
     });
     
     logger.info('Vehicles', 'Vehicle listing retrieved', {
-      totalElements: response.totalElements,
+      totalVehicles: response.totalElements,
       totalPages: response.totalPages,
       size: response.size,
-      vehicleCount: response.content?.length || 0
+      vehicleCount: response.vehicles.length || 0
     });
     
     res.json(response);
@@ -504,7 +504,7 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
           // Prepare request payload
           const payload = {
             promptText: videoPrompt,
-            promptImage: imageUrl,
+            promptImage: images.length > 1 ? images.slice(0, 2).map(img => img.url) : imageUrl,
             model: 'gen3a_turbo',
             duration: 5, // Duration in seconds
             parameters: {
@@ -512,6 +512,7 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
             }
           };
           console.log(`Runway request: ${style || 'cinematic'} style, ${payload.duration}s duration`);
+          console.log(`Using ${Array.isArray(payload.promptImage) ? payload.promptImage.length + ' images' : '1 image'} for video generation`);
           
           // Make the API call via the service
           const taskResponse = await runwayService.createImageToVideoTask(payload);

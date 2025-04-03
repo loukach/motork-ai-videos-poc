@@ -223,8 +223,8 @@ describe('API Endpoints', () => {
   });
 
   describe('N8N Proxy Endpoint', () => {
-    test('POST /n8n-proxy should forward request to n8n', async () => {
-      // Mock n8n service response
+    test('POST /n8n-proxy should forward request to n8n with JSON object response', async () => {
+      // Mock n8n service response as an object
       const mockResponse = {
         message: 'Processed by n8n',
         data: { 
@@ -251,6 +251,37 @@ describe('API Endpoints', () => {
         message: 'Hello, AI assistant',
         page: 'product-detail',
         authToken: 'Bearer test-token',
+        logPrefix: 'N8NProxy'
+      });
+    });
+    
+    test('POST /n8n-proxy should forward request to n8n with JSON string response', async () => {
+      // Mock n8n service response as a JSON string
+      const jsonData = [
+        { make: "Honda", model: "e", vehicleId: "7026438" },
+        { make: "Honda", model: "e", vehicleId: "7199514" }
+      ];
+      const jsonString = JSON.stringify(jsonData);
+      
+      n8nService.forwardToN8n.mockResolvedValueOnce(jsonString);
+      
+      const response = await request(app)
+        .post('/n8n-proxy')
+        .send({
+          sessionId: 'json-session-123',
+          message: 'How many honda are in stock?'
+        });
+        
+      expect(response.status).toBe(200);
+      expect(response.headers['content-type']).toContain('application/json');
+      
+      // The response body should be the parsed JSON
+      expect(JSON.stringify(response.body)).toEqual(jsonString);
+      expect(n8nService.forwardToN8n).toHaveBeenCalledWith({
+        sessionId: 'json-session-123',
+        message: 'How many honda are in stock?',
+        page: undefined,
+        authToken: undefined,
         logPrefix: 'N8NProxy'
       });
     });

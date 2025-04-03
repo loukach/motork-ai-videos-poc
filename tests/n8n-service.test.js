@@ -15,8 +15,11 @@ describe('N8N Service', () => {
   });
 
   it('should forward message to test webhook when not in production', async () => {
-    // Store original NODE_ENV
+    // Store original NODE_ENV and console.log
     const originalEnv = process.env.NODE_ENV;
+    const originalConsoleLog = console.log;
+    console.log = jest.fn(); // Mock console.log to prevent test output noise
+    
     process.env.NODE_ENV = 'development';
     
     // Mock the axios response
@@ -36,6 +39,9 @@ describe('N8N Service', () => {
       page,
       authToken
     });
+    
+    // Restore original console.log
+    console.log = originalConsoleLog;
     
     // Verify axios was called with the right parameters
     expect(axios).toHaveBeenCalledWith({
@@ -60,8 +66,11 @@ describe('N8N Service', () => {
   });
 
   it('should forward message to prod webhook when in production', async () => {
-    // Store original NODE_ENV
+    // Store original NODE_ENV and console.log
     const originalEnv = process.env.NODE_ENV;
+    const originalConsoleLog = console.log;
+    console.log = jest.fn(); // Mock console.log to prevent test output noise
+    
     process.env.NODE_ENV = 'production';
     
     // Mock the axios response
@@ -77,6 +86,9 @@ describe('N8N Service', () => {
       sessionId, 
       message 
     });
+    
+    // Restore original console.log
+    console.log = originalConsoleLog;
     
     // Verify axios was called with the right parameters
     expect(axios).toHaveBeenCalledWith({
@@ -100,6 +112,10 @@ describe('N8N Service', () => {
   });
 
   it('should handle errors correctly', async () => {
+    // Store original console.log
+    const originalConsoleLog = console.log;
+    console.log = jest.fn(); // Mock console.log to prevent test output noise
+    
     // Mock axios to throw an error
     const mockError = {
       message: 'Error connecting to n8n',
@@ -117,5 +133,41 @@ describe('N8N Service', () => {
     // Call the service function and expect it to throw
     await expect(n8nService.forwardToN8n({ sessionId, message }))
       .rejects.toEqual(mockError);
+      
+    // Restore original console.log
+    console.log = originalConsoleLog;
+  });
+  
+  it('should properly handle JSON string responses', async () => {
+    // Store original console.log
+    const originalConsoleLog = console.log;
+    console.log = jest.fn(); // Mock console.log to prevent test output noise
+    
+    // Mock a response that contains a JSON string
+    const jsonData = [
+      { make: "Honda", model: "e", vehicleId: "7026438" },
+      { make: "Honda", model: "e", vehicleId: "7199514" }
+    ];
+    const mockResponse = { data: JSON.stringify(jsonData) };
+    axios.mockResolvedValue(mockResponse);
+    
+    // Test data
+    const sessionId = 'json-session-123';
+    const message = 'How many honda are in stock?';
+    
+    // Call the service function
+    const result = await n8nService.forwardToN8n({ 
+      sessionId, 
+      message
+    });
+    
+    // Verify the result is the JSON string (preserved as-is)
+    expect(result).toEqual(JSON.stringify(jsonData));
+    
+    // Verify console.log was called with the formatted JSON
+    expect(console.log).toHaveBeenCalledWith(`\n----- N8N JSON RESPONSE [${sessionId}] -----`);
+    
+    // Restore original console.log
+    console.log = originalConsoleLog;
   });
 });

@@ -50,10 +50,34 @@ async function forwardToN8n({ sessionId, message, page, authToken, logPrefix = '
       }
     });
     
+    // Log the response from n8n, with special handling for JSON responses
     logger.info(logPrefix, 'Received response from n8n', {
       sessionId: sessionId
     });
     
+    // If the response is JSON, log it more clearly in the console
+    if (response.data) {
+      if (typeof response.data === 'object') {
+        console.log(`\n----- N8N JSON RESPONSE [${sessionId}] -----`);
+        console.log(JSON.stringify(response.data, null, 2));
+      } else if (typeof response.data === 'string' && (response.data.startsWith('{') || response.data.startsWith('['))) {
+        // Try to parse string as JSON
+        try {
+          const jsonData = JSON.parse(response.data);
+          console.log(`\n----- N8N JSON RESPONSE [${sessionId}] -----`);
+          console.log(JSON.stringify(jsonData, null, 2));
+        } catch (e) {
+          // Not valid JSON, log as is
+          console.log(`\n----- N8N RESPONSE [${sessionId}] -----`);
+          console.log(response.data);
+        }
+      } else {
+        console.log(`\n----- N8N RESPONSE [${sessionId}] -----`);
+        console.log(response.data);
+      }
+    }
+    
+    // Return the response data as-is to preserve the exact format from n8n
     return response.data;
   } catch (error) {
     // Log detailed error information

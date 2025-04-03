@@ -914,8 +914,26 @@ app.post('/n8n-proxy', async (req, res) => {
       logPrefix: 'N8NProxy'
     });
     
-    // Return the n8n response to the client
-    res.json(response);
+    // Return the n8n response to the client with proper content type
+    // If response is already an object, send as JSON
+    // If it's a string, determine if it's JSON string or plain text
+    if (typeof response === 'object') {
+      res.json(response);
+    } else if (typeof response === 'string') {
+      // Check if the string is JSON
+      try {
+        const jsonData = JSON.parse(response);
+        // It's a valid JSON string, so set content type and send raw to preserve exact format
+        res.set('Content-Type', 'application/json');
+        res.send(response);
+      } catch (e) {
+        // Not JSON, send as plain text
+        res.send(response);
+      }
+    } else {
+      // For any other type, convert to JSON
+      res.json(response);
+    }
   } catch (error) {
     return handleApiError(error, res, 'N8N Proxy');
   }

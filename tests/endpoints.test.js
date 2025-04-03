@@ -73,11 +73,11 @@ describe('API Endpoints', () => {
     test('GET /vehicles should return list of vehicles', async () => {
       // Mock the service response
       const mockVehicles = {
-        content: [
+        vehicles: [
           { id: 'vehicle1', brand: 'Toyota', model: 'Corolla' },
           { id: 'vehicle2', brand: 'Honda', model: 'Civic' }
         ],
-        totalElements: 2,
+        totalVehicles: 2,
         totalPages: 1,
         size: 10
       };
@@ -89,8 +89,8 @@ describe('API Endpoints', () => {
         .set('Authorization', 'Bearer test-token');
         
       expect(response.status).toBe(200);
-      expect(response.body).toHaveProperty('content');
-      expect(response.body.content).toHaveLength(2);
+      expect(response.body).toHaveProperty('vehicles');
+      expect(response.body.vehicles).toHaveLength(2);
       expect(vehicleService.listVehicles).toHaveBeenCalled();
     });
     

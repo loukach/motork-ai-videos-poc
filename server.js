@@ -435,22 +435,8 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
     
     console.log(`\n----- IMAGES: Found ${images.length} images -----`);
     
-    // Generate a unique task ID
-    const taskId = Date.now().toString();
-    
-    // Store task in memory
-    videoTasks.set(taskId, {
-      vehicleId,
-      status: 'processing',
-      createdAt: new Date().toISOString(),
-      vehicleData: {
-        id: vehicleData.id,
-        brand: vehicleData.brand,
-        model: vehicleData.model,
-        year: vehicleData.year,
-        color: vehicleData.exteriorColorName || 'Unknown'
-      }
-    });
+    // Create a new task in the task service
+    const taskId = taskService.createVideoTask(vehicleId, vehicleData);
     
     // Capture what we need from the request before starting the background task
     const requestAuth = authHeader;
@@ -468,7 +454,7 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
         console.log(`Selected image with URL: ${selectedImage.url}`);
         
         // Update task status data
-        videoTasks.get(taskId).imageUrl = selectedImage.url;
+        taskService.updateTask(taskId, { imageUrl: selectedImage.url });
         
         // Step 5: Prepare data for Runway API
         // Build a prompt based on vehicle details if none provided
@@ -522,8 +508,10 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
           runwayTaskId = taskResponse.taskId || taskResponse.id;
           
           // Store the runway task ID immediately in our task object
-          videoTasks.get(taskId).runwayTaskId = runwayTaskId;
-          videoTasks.get(taskId).status = 'processing_runway';
+          taskService.updateTask(taskId, { 
+            runwayTaskId,
+            status: 'processing_runway'
+          });
           
           console.log(`Task created with ID: ${runwayTaskId}`);
           
@@ -548,8 +536,10 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
               attempts++;
               
               // Update our task object with the current status
-              videoTasks.get(taskId).runwayStatus = status;
-              videoTasks.get(taskId).lastChecked = new Date().toISOString();
+              taskService.updateTask(taskId, {
+                runwayStatus: status,
+                lastChecked: new Date().toISOString()
+              });
               
               if (status === 'SUCCEEDED' || status === 'SUCCESS' || status === 'COMPLETED') {
                 taskCompleted = true;
@@ -657,15 +647,20 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
 
         // Update task with video URL and completion status
         const completionTime = new Date();
-        videoTasks.get(taskId).status = 'completed';
-        videoTasks.get(taskId).videoUrl = shortUrl;
-        videoTasks.get(taskId).originalVideoUrl = videoUrl;
-        // runwayTaskId already stored earlier
-        videoTasks.get(taskId).completedAt = completionTime.toISOString();
+        const completedAt = completionTime.toISOString();
         
-        // Calculate total processing time
-        const startTimeStr = videoTasks.get(taskId).createdAt;
+        // Get the task data to calculate processing time
+        const task = taskService.getTask(taskId);
+        const startTimeStr = task.createdAt;
         const startTime = new Date(startTimeStr);
+        
+        // Update task with completed info
+        taskService.updateTask(taskId, {
+          status: 'completed',
+          videoUrl: shortUrl,
+          originalVideoUrl: videoUrl,
+          completedAt
+        });
         const totalProcessingSeconds = Math.round((completionTime - startTime)/1000);
         
         console.log(`[Video][${taskId}] 🎬 Video generation completed successfully in ${totalProcessingSeconds}s total`);
@@ -690,8 +685,10 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
           });
           
           // Update the task data to indicate vehicle was updated
-          videoTasks.get(taskId).vehicleUpdated = true;
-          videoTasks.get(taskId).updateTime = new Date().toISOString();
+          taskService.updateTask(taskId, {
+            vehicleUpdated: true,
+            updateTime: new Date().toISOString()
+          });
           updateSuccess = true;
         } catch (updateError) {
           // The vehicle service handles retry internally
@@ -709,11 +706,16 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
         }
       } catch (error) {
         console.error(`[Process][${taskId}] ❌ Video generation failed: ${error.message}`);
-        videoTasks.get(taskId).status = 'failed';
-        videoTasks.get(taskId).error = error.message;
         
-        // Log elapsed time for failed process
-        const startTimeStr = videoTasks.get(taskId).createdAt;
+        // Get the task data for logging
+        const task = taskService.getTask(taskId);
+        const startTimeStr = task.createdAt;
+        
+        // Update task with failure info
+        taskService.updateTask(taskId, {
+          status: 'failed',
+          error: error.message
+        });
         if (startTimeStr) {
           const failedDurationSecs = Math.round((new Date() - new Date(startTimeStr))/1000);
           console.error(`[Process][${taskId}] ⏱️ Failed after ${failedDurationSecs}s`);

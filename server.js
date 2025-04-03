@@ -21,6 +21,7 @@ const runwayService = require('./services/runway-service');
 const urlShortenerService = require('./services/url-shortener-service');
 const vehicleService = require('./services/vehicle-service');
 const taskService = require('./services/task-service');
+const n8nService = require('./services/n8n-service');
 
 const app = express();
 const PORT = config.port;
@@ -889,6 +890,36 @@ if (process.env.NODE_ENV !== 'test') {
     console.log('=================================');
   });
 }
+
+// N8N Proxy endpoint
+app.post('/n8n-proxy', async (req, res) => {
+  try {
+    const { sessionId, message, page } = req.body;
+    const authHeader = req.headers.authorization;
+    
+    // Validate required fields
+    if (!sessionId || !message) {
+      logger.warn('N8NProxy', 'Missing required fields');
+      return res.status(400).json({ error: 'sessionId and message are required' });
+    }
+
+    logger.info('N8NProxy', `Processing request with sessionId: ${sessionId}`);
+    
+    // Use the n8n service to forward the request
+    const response = await n8nService.forwardToN8n({
+      sessionId,
+      message,
+      page,
+      authToken: authHeader, // Forward the authorization header
+      logPrefix: 'N8NProxy'
+    });
+    
+    // Return the n8n response to the client
+    res.json(response);
+  } catch (error) {
+    return handleApiError(error, res, 'N8N Proxy');
+  }
+});
 
 // Export the app for testing
 module.exports = app;

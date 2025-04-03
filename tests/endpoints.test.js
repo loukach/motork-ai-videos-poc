@@ -28,6 +28,12 @@ const vehicleService = require('../services/vehicle-service');
 const taskService = require('../services/task-service');
 const axios = require('axios');
 
+// Mock n8n service
+jest.mock('../services/n8n-service', () => ({
+  forwardToN8n: jest.fn()
+}));
+const n8nService = require('../services/n8n-service');
+
 // Set environment to test
 process.env.NODE_ENV = 'test';
 
@@ -213,6 +219,83 @@ describe('API Endpoints', () => {
         .get('/vehicle/video/nonexistent');
         
       expect(response.status).toBe(404);
+    });
+  });
+
+  describe('N8N Proxy Endpoint', () => {
+    test('POST /n8n-proxy should forward request to n8n', async () => {
+      // Mock n8n service response
+      const mockResponse = {
+        message: 'Processed by n8n',
+        data: { 
+          result: 'success',
+          aiResponse: 'This is an AI generated response'
+        }
+      };
+      
+      n8nService.forwardToN8n.mockResolvedValueOnce(mockResponse);
+      
+      const response = await request(app)
+        .post('/n8n-proxy')
+        .set('Authorization', 'Bearer test-token')
+        .send({
+          sessionId: 'test-session-123',
+          message: 'Hello, AI assistant',
+          page: 'product-detail'
+        });
+        
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual(mockResponse);
+      expect(n8nService.forwardToN8n).toHaveBeenCalledWith({
+        sessionId: 'test-session-123',
+        message: 'Hello, AI assistant',
+        page: 'product-detail',
+        authToken: 'Bearer test-token',
+        logPrefix: 'N8NProxy'
+      });
+    });
+    
+    test('POST /n8n-proxy should return 400 if required fields are missing', async () => {
+      // Test with missing sessionId
+      const response1 = await request(app)
+        .post('/n8n-proxy')
+        .send({
+          message: 'Hello, AI assistant'
+        });
+        
+      expect(response1.status).toBe(400);
+      expect(response1.body).toHaveProperty('error');
+      
+      // Test with missing message
+      const response2 = await request(app)
+        .post('/n8n-proxy')
+        .send({
+          sessionId: 'test-session-123'
+        });
+        
+      expect(response2.status).toBe(400);
+      expect(response2.body).toHaveProperty('error');
+    });
+    
+    test('POST /n8n-proxy should handle errors from n8n service', async () => {
+      // Mock n8n service to throw an error
+      const mockError = new Error('Failed to connect to n8n');
+      mockError.response = {
+        status: 500,
+        data: { error: 'Internal server error' }
+      };
+      
+      n8nService.forwardToN8n.mockRejectedValueOnce(mockError);
+      
+      const response = await request(app)
+        .post('/n8n-proxy')
+        .send({
+          sessionId: 'test-session-123',
+          message: 'This will cause an error'
+        });
+        
+      expect(response.status).toBe(500);
+      expect(response.body).toHaveProperty('error');
     });
   });
 });

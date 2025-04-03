@@ -22,5 +22,11 @@ module.exports = {
   taskRetention: {
     hours: 24,
     cleanupInterval: 60 * 60 * 1000 // 1 hour
+  },
+  
+  // N8N Webhook configuration
+  n8n: {
+    testWebhookUrl: 'https://motork.app.n8n.cloud/webhook-test/sparky',
+    prodWebhookUrl: 'https://motork.app.n8n.cloud/webhook/sparky'
   }
 };

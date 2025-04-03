@@ -14,6 +14,8 @@ const logger = require('../utils/logger');
  * @param {string} options.authToken - Authentication token
  * @param {number} options.page - Page number (default: 0)
  * @param {number} options.size - Page size (default: 10)
+ * @param {string} options.vehicleType - Vehicle type (default: 'USED')
+ * @param {string} options.sort - Sort order (default: 'modificationDate%3Bdesc')
  * @param {string} options.country - Country code (default: 'it')
  * @param {string} options.logPrefix - Prefix for log messages
  * @returns {Promise<Object>} List of vehicles with pagination info
@@ -30,7 +32,7 @@ async function listVehicles({
     
     const response = await axios({
       method: 'get',
-      url: `${config.apiBaseUrl}/${country}/vehicle?page=${page}&size=${size}`,
+      url: `${config.apiBaseUrl}/${country}/vehicle?page=${page}&size=${size}&vehicleType=USED&sort=modificationDate%3Bdesc`,
       headers: {
         'Authorization': authToken
       }

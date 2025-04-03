@@ -199,6 +199,8 @@ app.get('/vehicles', requireAuth, async (req, res) => {
       page,
       size,
       country: req.country,
+      vehicleType: "USED",
+      sort:"modificationDate%3Bdesc",
       logPrefix: 'VehicleListing'
     });
     

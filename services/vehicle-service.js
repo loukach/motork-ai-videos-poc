@@ -36,7 +36,7 @@ async function listVehicles({
       }
     });
     
-    logger.info('Vehicles', `Found ${response.data.content?.length || 0} vehicles (total: ${response.data.totalElements || 0})`, null, logPrefix);
+    logger.info('Vehicles', `Found ${response.data.vehicles?.length || 0} vehicles (total: ${response.data.totalVehicles || 0})`, null, logPrefix);
     return response.data;
   } catch (error) {
     logger.error('Vehicles', `Failed to list vehicles: ${error.message}`, error.response?.data, logPrefix);

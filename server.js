@@ -621,11 +621,13 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
             let maxAttempts = 60; // Increase to 60 attempts (10 minutes at 10 second intervals)
             let attempts = 0;
             
-            console.log(`Polling Runway task ${runwayTaskId} (every 10s, max ${maxAttempts} attempts)`);
+            console.log(`[Video][${taskId}] Polling Runway task ${runwayTaskId} (every 10s, max ${maxAttempts} attempts)`);
+            const startTime = new Date();
             
             while (!taskCompleted && attempts < maxAttempts) {
               // Wrap in try/catch to handle potential errors during status check
               try {
+                console.log(`[Video][${taskId}] Polling attempt ${attempts + 1}/${maxAttempts}, elapsed time: ${Math.round((new Date() - startTime)/1000)}s`);
                 const taskStatus = await runway.tasks.retrieve(runwayTaskId);
                 
                 // Case-insensitive status comparison for better reliability
@@ -638,78 +640,98 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
                 
                 if (status === 'SUCCEEDED' || status === 'SUCCESS' || status === 'COMPLETED') {
                   taskCompleted = true;
-                  console.log(`Task completed successfully after ${attempts} attempts`);
+                  const totalSeconds = Math.round((new Date() - startTime)/1000);
+                  console.log(`[Video][${taskId}] ✅ Task completed successfully after ${attempts} attempts (${totalSeconds}s)`);
+                  
+                  // Log the output format for debugging
+                  console.log(`[Video][${taskId}] Output format: ${typeof taskStatus.output} ${Array.isArray(taskStatus.output) ? 'array' : ''}`);
+                  if (typeof taskStatus.output === 'object' && !Array.isArray(taskStatus.output)) {
+                    console.log(`[Video][${taskId}] Output keys: ${Object.keys(taskStatus.output).join(', ')}`);
+                  }
                   
                   // Handle different output formats
+                  let outputFormat = 'unknown';
                   if (Array.isArray(taskStatus.output) && taskStatus.output.length > 0) {
                     videoUrl = taskStatus.output[0];
+                    outputFormat = 'array[0]';
                   } else if (taskStatus.output?.urls?.mp4) {
                     videoUrl = taskStatus.output.urls.mp4;
+                    outputFormat = 'urls.mp4';
                   } else if (taskStatus.output?.mp4) {
                     videoUrl = taskStatus.output.mp4;
+                    outputFormat = 'mp4';
                   } else if (taskStatus.output?.video) {
                     videoUrl = taskStatus.output.video;
+                    outputFormat = 'video';
                   } else if (taskStatus.output?.url) {
                     videoUrl = taskStatus.output.url;
+                    outputFormat = 'url';
                   } else if (typeof taskStatus.output === 'string') {
                     videoUrl = taskStatus.output;
+                    outputFormat = 'string';
                   } else {
+                    console.error(`[Video][${taskId}] ❌ Cannot extract URL from output:`, JSON.stringify(taskStatus.output));
                     throw new Error('Video URL not found in completed task');
                   }
                   
-                  console.log(`Video URL retrieved: ${videoUrl.substring(0, 60)}...`);
+                  console.log(`[Video][${taskId}] Video URL retrieved from '${outputFormat}' format: ${videoUrl.substring(0, 60)}...`);
                 } else if (status === 'FAILED' || status === 'ERROR') {
-                  console.error(`Runway task failed: ${taskStatus.error || 'Unknown error'}`);
+                  console.error(`[Video][${taskId}] ❌ Runway task failed: ${taskStatus.error || 'Unknown error'}`);
+                  if (taskStatus.error_details) {
+                    console.error(`[Video][${taskId}] Error details:`, JSON.stringify(taskStatus.error_details));
+                  }
                   throw new Error(`Task failed: ${taskStatus.error || 'Unknown error'}`);
                 } else {
                   // Task is still processing
                   if (attempts % 3 === 0) { // Only log every 3rd check to reduce noise
-                    console.log(`Still processing: ${status} (attempt ${attempts}/${maxAttempts})`);
+                    console.log(`[Video][${taskId}] 🔄 Status: ${status} (attempt ${attempts}/${maxAttempts}, elapsed: ${Math.round((new Date() - startTime)/1000)}s)`);
                   }
                   // Wait 10 seconds before checking again
                   await new Promise(resolve => setTimeout(resolve, 10000));
                 }
               } catch (pollError) {
-                console.error(`Error during status polling: ${pollError.message}`);
+                console.error(`[Video][${taskId}] ⚠️ Error during status polling: ${pollError.message}`);
                 
                 // Continue polling despite error
-                console.log('Will retry polling in 10 seconds...');
+                console.log(`[Video][${taskId}] Will retry polling in 10 seconds (attempt ${attempts + 1}/${maxAttempts})...`);
                 await new Promise(resolve => setTimeout(resolve, 10000));
                 attempts++;
               }
             }
             
             if (!taskCompleted) {
-              throw new Error('Task timed out after maximum polling attempts');
+              const totalSeconds = Math.round((new Date() - startTime)/1000);
+              console.error(`[Video][${taskId}] ⏱️ Task timed out after ${attempts} polling attempts (${totalSeconds}s)`);
+              throw new Error(`Task timed out after ${attempts} polling attempts (${totalSeconds}s)`);
             }
           } catch (error) {
-            console.error(`Runway API error: ${error.message}`);
+            console.error(`[Video][${taskId}] ❌ Runway API error: ${error.message}`);
             
             // Additional detailed error logging
-            console.error('Detailed error information:');
+            console.error(`[Video][${taskId}] Detailed error information:`);
             if (error.response) {
               // The request was made and the server responded with a status code
               // that falls out of the range of 2xx
-              console.error(`Status: ${error.response.status}`);
-              console.error('Response headers:', JSON.stringify(error.response.headers, null, 2));
-              console.error('Response data:', JSON.stringify(error.response.data, null, 2));
+              console.error(`[Video][${taskId}] Status: ${error.response.status}`);
+              console.error(`[Video][${taskId}] Response headers:`, JSON.stringify(error.response.headers, null, 2));
+              console.error(`[Video][${taskId}] Response data:`, JSON.stringify(error.response.data, null, 2));
             } else if (error.request) {
               // The request was made but no response was received
-              console.error('No response received from server');
-              console.error('Request details:', error.request);
+              console.error(`[Video][${taskId}] No response received from server`);
+              console.error(`[Video][${taskId}] Request details:`, error.request);
             } else {
               // Something happened in setting up the request that triggered an Error
-              console.error('Error details:', error.stack);
+              console.error(`[Video][${taskId}] Error details:`, error.stack);
             }
             
             // Try to get the first image directly to check if it's accessible
-            console.log('Attempting to check image accessibility...');
+            console.log(`[Video][${taskId}] Checking image accessibility...`);
             try {
               const checkImageResponse = await axios.head(selectedImage.url);
-              console.log(`Image check result: HTTP ${checkImageResponse.status}`);
-              console.log('Image content type:', checkImageResponse.headers['content-type']);
+              console.log(`[Video][${taskId}] Image check result: HTTP ${checkImageResponse.status}`);
+              console.log(`[Video][${taskId}] Image content type: ${checkImageResponse.headers['content-type']}`);
             } catch (imageCheckError) {
-              console.error(`Failed to access image: ${imageCheckError.message}`);
+              console.error(`[Video][${taskId}] Failed to access image: ${imageCheckError.message}`);
             }
             
             // Re-throw the error to be caught by the outer try/catch
@@ -718,35 +740,53 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
         }
         
         // Shorten the video URL using is.gd
-        console.log(`Shortening video URL...`);
+        console.log(`[Video][${taskId}] 🔗 Shortening video URL...`);
         let shortUrl = videoUrl;
         try {
           // URL encode the video URL
           const encodedUrl = encodeURIComponent(videoUrl);
+          console.log(`[Video][${taskId}] Calling is.gd API...`);
+          const shortenStartTime = new Date();
+          
           const shortenResponse = await axios({
             method: 'get',
             url: `https://is.gd/create.php?format=json&url=${encodedUrl}`
           });
           
+          const shortenTime = Math.round((new Date() - shortenStartTime));
+          
           if (shortenResponse.data && shortenResponse.data.shorturl) {
             shortUrl = shortenResponse.data.shorturl;
-            console.log(`URL shortened successfully: ${shortUrl}`);
+            console.log(`[Video][${taskId}] ✅ URL shortened successfully in ${shortenTime}ms: ${shortUrl}`);
+            console.log(`[Video][${taskId}] Original: ${videoUrl.substring(0, 30)}... → Shortened: ${shortUrl}`);
           } else {
-            console.log('URL shortener returned unexpected response, using original URL');
+            console.log(`[Video][${taskId}] ⚠️ URL shortener returned unexpected response (${shortenTime}ms), using original URL`);
+            console.log(`[Video][${taskId}] Response:`, JSON.stringify(shortenResponse.data));
           }
         } catch (shortenError) {
-          console.log(`URL shortening failed, using original URL: ${shortenError.message}`);
+          console.log(`[Video][${taskId}] ❌ URL shortening failed, using original URL: ${shortenError.message}`);
+          if (shortenError.response) {
+            console.log(`[Video][${taskId}] Response status: ${shortenError.response.status}`);
+          }
           // Continue with the original URL if shortening fails
         }
 
         // Update task with video URL and completion status
+        const completionTime = new Date();
         videoTasks.get(taskId).status = 'completed';
         videoTasks.get(taskId).videoUrl = shortUrl;
         videoTasks.get(taskId).originalVideoUrl = videoUrl;
         // runwayTaskId already stored earlier
-        videoTasks.get(taskId).completedAt = new Date().toISOString();
+        videoTasks.get(taskId).completedAt = completionTime.toISOString();
         
-        console.log(`Video generation completed successfully.`);
+        // Calculate total processing time
+        const startTimeStr = videoTasks.get(taskId).createdAt;
+        const startTime = new Date(startTimeStr);
+        const totalProcessingSeconds = Math.round((completionTime - startTime)/1000);
+        
+        console.log(`[Video][${taskId}] 🎬 Video generation completed successfully in ${totalProcessingSeconds}s total`);
+        console.log(`[Video][${taskId}] Started: ${startTimeStr}, Completed: ${completionTime.toISOString()}`);
+        console.log(`[Video][${taskId}] Vehicle: ${taskVehicleId}, Video URL: ${shortUrl}`);
         
         // Automatically update the vehicle videoUrl field with the shortened URL
         // Implement with retry logic
@@ -754,11 +794,17 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
         let retryCount = 0;
         const maxRetries = 3;
         
-        console.log(`Updating vehicle ${taskVehicleId} videoUrl field with generated video...`);
+        console.log(`[VehicleUpdate][${taskId}] 🚗 Updating vehicle ${taskVehicleId} videoUrl field with short URL...`);
+        console.log(`[VehicleUpdate][${taskId}] Field: videoUrl, Value: ${shortUrl}`);
+        
+        const updateStartTime = new Date();
         
         while (!updateSuccess && retryCount < maxRetries) {
           try {
             // Call the update-field endpoint using the captured request details
+            console.log(`[VehicleUpdate][${taskId}] Attempt ${retryCount + 1}/${maxRetries}...`);
+            const updateStartAttempt = new Date();
+            
             const updateResponse = await axios({
               method: 'put',
               url: `${requestProtocol}://${requestHost}/vehicle/${taskVehicleId}/update-field`,
@@ -773,29 +819,64 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
               }
             });
             
-            console.log(`Vehicle ${taskVehicleId} videoUrl updated successfully.`);
+            const updateAttemptMs = Math.round(new Date() - updateStartAttempt);
+            console.log(`[VehicleUpdate][${taskId}] ✅ Vehicle ${taskVehicleId} videoUrl updated successfully in ${updateAttemptMs}ms`);
+            console.log(`[VehicleUpdate][${taskId}] Response status: ${updateResponse.status}`);
             
             // Update the task data to indicate vehicle was updated
             videoTasks.get(taskId).vehicleUpdated = true;
+            videoTasks.get(taskId).updateTime = new Date().toISOString();
             updateSuccess = true;
           } catch (updateError) {
             retryCount++;
+            const updateAttemptMs = Math.round(new Date() - updateStartTime);
+            
+            console.error(`[VehicleUpdate][${taskId}] ❌ Attempt ${retryCount}/${maxRetries} failed after ${updateAttemptMs}ms: ${updateError.message}`);
+            
+            if (updateError.response) {
+              console.error(`[VehicleUpdate][${taskId}] Response status: ${updateError.response.status}`);
+              if (updateError.response.data) {
+                console.error(`[VehicleUpdate][${taskId}] Response data:`, JSON.stringify(updateError.response.data));
+              }
+            }
             
             if (retryCount < maxRetries) {
               // Wait before retrying (exponential backoff)
               const retryDelay = Math.pow(2, retryCount) * 1000; // 2s, 4s, 8s
-              console.log(`Update attempt ${retryCount}/${maxRetries} failed. Retrying in ${retryDelay/1000}s...`);
+              console.log(`[VehicleUpdate][${taskId}] Waiting ${retryDelay/1000}s before retry...`);
               await new Promise(resolve => setTimeout(resolve, retryDelay));
             } else {
-              console.error(`Failed to update vehicle videoUrl after ${maxRetries} attempts: ${updateError.message}`);
+              const totalUpdateTimeMs = Math.round(new Date() - updateStartTime);
+              console.error(`[VehicleUpdate][${taskId}] ⛔ Failed to update vehicle videoUrl after ${maxRetries} attempts (${totalUpdateTimeMs}ms): ${updateError.message}`);
               // The video is still generated successfully even if update fails
             }
           }
         }
+        
+        const totalUpdateTimeMs = Math.round(new Date() - updateStartTime);
+        console.log(`[VehicleUpdate][${taskId}] Update process completed in ${totalUpdateTimeMs}ms (success: ${updateSuccess})`);
+        
+        // Full process complete - log final status
+        const fullProcessSeconds = Math.round((new Date() - new Date(startTimeStr))/1000);
+        console.log(`[Process][${taskId}] ✨ Complete process took ${fullProcessSeconds}s - Vehicle: ${taskVehicleId}, Video: ${shortUrl}`);
+        if (updateSuccess) {
+          console.log(`[Process][${taskId}] ✅ Vehicle was successfully updated with the new video URL`);
+        } else {
+          console.log(`[Process][${taskId}] ⚠️ Video was generated but vehicle update failed`);
+        }
       } catch (error) {
-        console.error(`Video generation failed: ${error.message}`);
+        console.error(`[Process][${taskId}] ❌ Video generation failed: ${error.message}`);
         videoTasks.get(taskId).status = 'failed';
         videoTasks.get(taskId).error = error.message;
+        
+        // Log elapsed time for failed process
+        const startTimeStr = videoTasks.get(taskId).createdAt;
+        if (startTimeStr) {
+          const failedDurationSecs = Math.round((new Date() - new Date(startTimeStr))/1000);
+          console.error(`[Process][${taskId}] ⏱️ Failed after ${failedDurationSecs}s`);
+        }
+        
+        console.error(`[Process][${taskId}] ⏹️ Process terminated with error for vehicle ${taskVehicleId}`);
       }
     })();
     

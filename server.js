@@ -83,6 +83,8 @@ app.use((req, res, next) => {
       // For video generation, only log if a custom prompt was provided
       if (req.body.prompt) relevantBody.prompt = req.body.prompt;
       if (req.body.style) relevantBody.style = req.body.style;
+      if (req.body.duration) relevantBody.duration = req.body.duration;
+      if (req.body.ratio) relevantBody.ratio = req.body.ratio;
     } else if (endpoint === 'update-field') {
       // For field updates, log which field is being updated
       if (req.body.field) relevantBody.field = req.body.field;
@@ -398,7 +400,7 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
     const { vehicleId } = req.params;
     const authHeader = req.headers.authorization;
     const country = req.query.country || 'it'; // Default to Italy if not specified
-    const { prompt, style } = req.body; // Optional parameters for video generation
+    const { prompt, style, duration, ratio } = req.body; // Optional parameters for video generation
     
     if (!authHeader) {
       console.warn('\n----- AUTH ERROR: Missing authorization header -----');
@@ -438,8 +440,12 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
     
     console.log(`\n----- IMAGES: Found ${images.length} images -----`);
     
-    // Create a new task in the task service
-    const taskId = taskService.createVideoTask(vehicleId, vehicleData);
+    // Create a new task in the task service with video options
+    const taskId = taskService.createVideoTask(vehicleId, vehicleData, {
+      duration, 
+      ratio, 
+      style
+    });
     
     // Capture what we need from the request before starting the background task
     const requestAuth = authHeader;
@@ -471,6 +477,14 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
         console.log(`Preparing to generate video with prompt: "${videoPrompt}"`);
         console.log(`Style: ${style || 'cinematic'} (default: cinematic)`);
         
+        // Log new parameters if provided
+        if (duration !== undefined) {
+          console.log(`Duration: ${duration} seconds`);
+        }
+        if (ratio !== undefined) {
+          console.log(`Ratio: ${ratio}`);
+        }
+        
         // Submit generation request to Runway
         let videoUrl, runwayTaskId;
         
@@ -490,17 +504,26 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
           // Initialize the generation task 
           console.log('Starting imageToVideo task...');
           
-          // Prepare request payload
+          // Prepare request payload with new parameters
           const payload = {
             promptText: videoPrompt,
             promptImage: images.length > 1 ? images.slice(0, 2).map(img => img.url) : imageUrl,
             model: 'gen3a_turbo',
-            duration: 5, // Duration in seconds
+            duration: duration !== undefined ? duration : 10, // Use provided duration or default to 10 seconds
+            ratio: ratio, // Add ratio parameter if provided
             parameters: {
               style: style || 'cinematic'
             }
           };
-          console.log(`Runway request: ${style || 'cinematic'} style, ${payload.duration}s duration`);
+          
+          // Remove undefined properties
+          Object.keys(payload).forEach(key => {
+            if (payload[key] === undefined) {
+              delete payload[key];
+            }
+          });
+          
+          console.log(`Runway request: ${style || 'cinematic'} style, ${payload.duration}s duration${payload.ratio ? `, ${payload.ratio} ratio` : ''}`);
           console.log(`Using ${Array.isArray(payload.promptImage) ? payload.promptImage.length + ' images' : '1 image'} for video generation`);
           
           // Make the API call via the service

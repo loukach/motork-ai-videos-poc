@@ -28,7 +28,8 @@ try {
  * @param {string} options.promptText - The text prompt for generation
  * @param {string|Array} options.promptImage - URL of the source image or array of image URLs
  * @param {string} options.model - Runway model to use
- * @param {number} options.duration - Video duration in seconds
+ * @param {number} options.duration - Video duration in seconds (Supported values: 5, 10)
+ * @param {string} options.ratio - Output video resolution/aspect ratio (Supported values: "1280:768", "768:1280")
  * @param {Object} options.parameters - Additional parameters (style, etc)
  * @returns {Promise<Object>} Task response with ID
  */
@@ -39,6 +40,24 @@ async function createImageToVideoTask(options) {
   
   // Process promptImage to handle both string and array formats
   const taskOptions = { ...options };
+  
+  // Validate and set defaults for duration if provided (must be 5 or 10)
+  if (taskOptions.duration !== undefined) {
+    const validDurations = [5, 10];
+    if (!validDurations.includes(taskOptions.duration)) {
+      console.warn(`Invalid duration value: ${taskOptions.duration}. Must be one of ${validDurations.join(', ')}. Defaulting to 10.`);
+      taskOptions.duration = 10;
+    }
+  }
+  
+  // Validate and set defaults for ratio if provided
+  if (taskOptions.ratio !== undefined) {
+    const validRatios = ["1280:768", "768:1280"];
+    if (!validRatios.includes(taskOptions.ratio)) {
+      console.warn(`Invalid ratio value: ${taskOptions.ratio}. Must be one of ${validRatios.join(', ')}. Defaulting to "1280:768".`);
+      taskOptions.ratio = "1280:768";
+    }
+  }
   
   // Handle array of image URLs
   if (Array.isArray(options.promptImage) && options.promptImage.length > 0) {

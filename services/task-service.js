@@ -13,13 +13,17 @@ const videoTasks = new Map();
  * Creates a new video generation task
  * @param {string} vehicleId - Vehicle ID
  * @param {object} vehicleData - Basic vehicle data to store with task
+ * @param {object} [videoOptions] - Optional video generation options
+ * @param {number} [videoOptions.duration] - Video duration in seconds
+ * @param {string} [videoOptions.ratio] - Video aspect ratio
+ * @param {string} [videoOptions.style] - Video style
  * @returns {string} Task ID
  */
-function createVideoTask(vehicleId, vehicleData) {
+function createVideoTask(vehicleId, vehicleData, videoOptions = {}) {
   // Generate a unique task ID
   const taskId = Date.now().toString();
   
-  // Store task in memory
+  // Store task in memory with video options
   videoTasks.set(taskId, {
     vehicleId,
     status: 'processing',
@@ -30,10 +34,21 @@ function createVideoTask(vehicleId, vehicleData) {
       model: vehicleData.model,
       year: vehicleData.year,
       color: vehicleData.exteriorColorName || 'Unknown'
+    },
+    videoOptions: {
+      duration: videoOptions.duration,
+      ratio: videoOptions.ratio,
+      style: videoOptions.style
     }
   });
   
-  logger.info('TaskService', `Created new task for vehicle ${vehicleId}`, null, taskId);
+  const videoParams = [];
+  if (videoOptions.duration) videoParams.push(`${videoOptions.duration}s`);
+  if (videoOptions.ratio) videoParams.push(`${videoOptions.ratio} ratio`);
+  if (videoOptions.style) videoParams.push(`${videoOptions.style} style`);
+  
+  const videoParamsStr = videoParams.length > 0 ? ` with ${videoParams.join(', ')}` : '';
+  logger.info('TaskService', `Created new task for vehicle ${vehicleId}${videoParamsStr}`, null, taskId);
   
   return taskId;
 }
@@ -93,7 +108,8 @@ function getTaskStatus(taskId) {
     originalVideoUrl: task.status === 'completed' ? task.originalVideoUrl : undefined,
     runwayTaskId: task.runwayTaskId,
     vehicleUpdated: task.vehicleUpdated || false,
-    error: task.error
+    error: task.error,
+    videoOptions: task.videoOptions // Include video options in the response
   };
 }
 

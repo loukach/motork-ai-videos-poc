@@ -46,7 +46,7 @@ async function createImageToVideoTask(options) {
     const validDurations = [5, 10];
     if (!validDurations.includes(taskOptions.duration)) {
       console.warn(`Invalid duration value: ${taskOptions.duration}. Must be one of ${validDurations.join(', ')}. Defaulting to 10.`);
-      taskOptions.duration = 10;
+      taskOptions.duration = 5;
     }
   }
   

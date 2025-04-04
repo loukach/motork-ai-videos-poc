@@ -184,16 +184,33 @@ async function getVehicleDetails({
  * @param {string} options.authToken - Authentication token
  * @param {string} options.country - Country code (default: 'it')
  * @param {string} options.logPrefix - Prefix for log messages
+ * @param {string} options.logLevel - Logging level (default: 'info')
  * @returns {Promise<Array>} Vehicle images
  */
 async function getVehicleImages({
   vehicleId,
   authToken,
   country = 'it',
-  logPrefix = ''
+  logPrefix = '',
+  logLevel = 'info'
 }) {
-  const logTag = logPrefix ? `[${logPrefix}]` : '';
-  console.log(`${logTag} 🖼️ Fetching vehicle ${vehicleId} gallery images...`);
+  // Import logger if we're using the enhanced logging system
+  const logger = require('../utils/logger');
+  const useEnhancedLogging = typeof logger.debug === 'function';
+  
+  // Only log at the specified level or fallback to old style
+  if (useEnhancedLogging) {
+    // Use the specified log level (debug or info)
+    if (logLevel === 'debug') {
+      logger.debug('VehicleImages', `Fetching gallery for vehicle ${vehicleId}`, null, vehicleId);
+    } else {
+      logger.info('VehicleImages', `Fetching gallery for vehicle ${vehicleId}`, null, vehicleId);
+    }
+  } else {
+    // Fallback for tests that might not have the enhanced logger
+    const logTag = logPrefix ? `[${logPrefix}]` : '';
+    console.log(`${logTag} 🖼️ Fetching vehicle ${vehicleId} gallery images...`);
+  }
   
   try {
     const response = await axios({
@@ -206,12 +223,31 @@ async function getVehicleImages({
     });
     
     const imageCount = Array.isArray(response.data) ? response.data.length : 0;
-    console.log(`${logTag} ✅ Found ${imageCount} images`);
+    
+    // Log success at the appropriate level
+    if (useEnhancedLogging) {
+      if (logLevel === 'debug') {
+        logger.debug('VehicleImages', `Found ${imageCount} images`, { count: imageCount }, vehicleId);
+      } else {
+        logger.info('VehicleImages', `Found ${imageCount} images`, { count: imageCount }, vehicleId);
+      }
+    } else {
+      console.log(`${logPrefix ? `[${logPrefix}]` : ''} ✅ Found ${imageCount} images`);
+    }
+    
     return response.data;
   } catch (error) {
-    console.error(`${logTag} ❌ Failed to fetch vehicle images: ${error.message}`);
-    if (error.response) {
-      console.error(`${logTag} Response status: ${error.response.status}`);
+    // Always log errors at error level
+    if (useEnhancedLogging) {
+      logger.error('VehicleImages', `Failed to fetch images: ${error.message}`, {
+        status: error.response?.status,
+        vehicleId
+      }, vehicleId);
+    } else {
+      console.error(`${logPrefix ? `[${logPrefix}]` : ''} ❌ Failed to fetch vehicle images: ${error.message}`);
+      if (error.response) {
+        console.error(`${logPrefix ? `[${logPrefix}]` : ''} Response status: ${error.response.status}`);
+      }
     }
     throw error;
   }

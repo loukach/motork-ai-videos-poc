@@ -17,6 +17,25 @@ const colors = {
 };
 
 // Map log levels to colors and symbols
+// Default log level - can be changed to control what gets logged
+let globalLogLevel = 'info';
+
+// Log level hierarchy (lower index = higher priority)
+const logLevels = ['error', 'warn', 'info', 'debug'];
+
+// Get the numeric priority of a log level
+function getLogLevelPriority(level) {
+  const levelLower = level.toLowerCase();
+  const index = logLevels.indexOf(levelLower);
+  return index === -1 ? logLevels.indexOf('info') : index;
+}
+
+// Check if we should log at this level based on global setting
+function shouldLog(level) {
+  return getLogLevelPriority(level) <= getLogLevelPriority(globalLogLevel);
+}
+
+// Configure appearance for different log levels
 const levelConfig = {
   INFO: { color: colors.green, symbol: 'ℹ️ ' },
   ERROR: { color: colors.red, symbol: '❌ ' },
@@ -45,6 +64,11 @@ function createLogPrefix(area, id) {
  * @param {string} [id] - Optional identifier
  */
 function log(level, area, message, data, id) {
+  // Check if we should log at this level
+  if (!shouldLog(level)) {
+    return; // Skip logging if below our threshold
+  }
+  
   const config = levelConfig[level] || { color: '', symbol: '' };
   const prefix = createLogPrefix(area, id);
   const timestamp = new Date().toISOString();
@@ -87,6 +111,31 @@ function n8n(action, message, data, sessionId) {
   log('N8N', action, message, data, sessionId);
 }
 
+/**
+ * Set the global logging level
+ * @param {string} level - The log level to set ('error', 'warn', 'info', or 'debug')
+ */
+function setLogLevel(level) {
+  const validLevels = ['error', 'warn', 'info', 'debug'];
+  const normalizedLevel = level.toLowerCase();
+  
+  if (validLevels.includes(normalizedLevel)) {
+    globalLogLevel = normalizedLevel;
+    console.log(`${colors.cyan}Log level set to: ${colors.bright}${globalLogLevel}${colors.reset}`);
+  } else {
+    console.warn(`${colors.yellow}Invalid log level: ${level}. Using 'info' instead.${colors.reset}`);
+    globalLogLevel = 'info';
+  }
+}
+
+/**
+ * Get the current global logging level
+ * @returns {string} The current log level
+ */
+function getLogLevel() {
+  return globalLogLevel;
+}
+
 module.exports = {
   info: (area, message, data, id) => log('INFO', area, message, data, id),
   error: (area, message, data, id) => log('ERROR', area, message, data, id),
@@ -94,5 +143,7 @@ module.exports = {
   debug: (area, message, data, id) => log('DEBUG', area, message, data, id),
   runway,
   n8n,
-  createLogPrefix
+  createLogPrefix,
+  setLogLevel,
+  getLogLevel
 };

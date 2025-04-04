@@ -29,6 +29,10 @@ const PORT = config.port;
 // Start task cleanup timer
 taskService.startCleanupTimer();
 
+// Set default log level to info, but can be changed via environment variable
+const envLogLevel = process.env.LOG_LEVEL || 'info';
+logger.setLogLevel(envLogLevel);
+
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -251,21 +255,30 @@ app.get('/vehicle/:vehicleId/images/gallery', requireAuth, async (req, res) => {
   try {
     const { vehicleId } = req.params;
     
-    logger.info('Gallery', `Fetching vehicle images (vehicleId=${vehicleId}, country=${req.country})`);
+    // Use debug level instead of info to reduce log verbosity for frequent image requests
+    logger.debug('Gallery', `Fetching vehicle images (vehicleId=${vehicleId}, country=${req.country})`);
     
     const response = await vehicleService.getVehicleImages({
       vehicleId,
       authToken: req.authToken,
       country: req.country,
-      logPrefix: 'GalleryImages'
+      logPrefix: 'GalleryImages',
+      logLevel: 'debug' // Signal to use debug level in the service too
     });
     
-    logger.info('Gallery', 'Retrieved vehicle images', {
-      imageCount: Array.isArray(response) ? response.length : 'N/A'
-    });
+    // Only log at info level if there are no images (potential issue)
+    if (!Array.isArray(response) || response.length === 0) {
+      logger.info('Gallery', 'No images found for vehicle', { vehicleId });
+    } else {
+      logger.debug('Gallery', 'Retrieved vehicle images', {
+        vehicleId,
+        imageCount: response.length
+      });
+    }
     
     res.json(response);
   } catch (error) {
+    // Still log errors at error level
     return handleApiError(error, res, 'Gallery images');
   }
 });

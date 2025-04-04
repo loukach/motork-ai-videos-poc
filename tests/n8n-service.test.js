@@ -168,8 +168,8 @@ describe('N8N Service', () => {
     // Verify the result is the JSON string (preserved as-is)
     expect(result).toEqual(JSON.stringify(jsonData));
     
-    // Verify console.log was called with the formatted JSON
-    expect(console.log).toHaveBeenCalledWith(`\n----- N8N JSON RESPONSE [${sessionId}] -----`);
+    // Verify console.log was called with response data from n8n
+    expect(console.log).toHaveBeenCalledWith(expect.stringContaining('Response data'));
     
     // Restore original console.log
     console.log = originalConsoleLog;

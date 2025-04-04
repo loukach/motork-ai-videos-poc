@@ -652,7 +652,7 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
           // Get the task data to calculate processing time
           const task = taskService.getTask(taskId);
           const startTimeStr = task.createdAt;
-          const startTime = new Date(startTimeStr);
+          const taskStartTime = new Date(startTimeStr);
           
           // Update task with completed info
           taskService.updateTask(taskId, {
@@ -661,7 +661,7 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
             originalVideoUrl: videoUrl,
             completedAt
           });
-          const totalProcessingSeconds = Math.round((completionTime - startTime)/1000);
+          const totalProcessingSeconds = Math.round((completionTime - taskStartTime)/1000);
           
           logger.info('VideoGeneration', `Completed successfully (${totalProcessingSeconds}s)`, {
             vehicleId: taskVehicleId,

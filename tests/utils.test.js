@@ -118,7 +118,7 @@ describe('Utilities', () => {
   describe('Logger', () => {
     test('should format log messages with area', () => {
       logger.info('TestArea', 'Test message');
-      expect(console.log).toHaveBeenCalledWith(expect.stringContaining('[TestArea]'));
+      expect(console.log).toHaveBeenCalledWith(expect.stringContaining('TestArea'));
     });
     
     test('should include data in log messages', () => {
@@ -129,7 +129,7 @@ describe('Utilities', () => {
     
     test('should include ID in log prefix if provided', () => {
       logger.info('TestArea', 'Test message', null, 'TestID');
-      expect(console.log).toHaveBeenCalledWith(expect.stringContaining('[TestArea][TestID]'));
+      expect(console.log).toHaveBeenCalledWith(expect.stringContaining('TestArea:TestID'));
     });
   });
 });

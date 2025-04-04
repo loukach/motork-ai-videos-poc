@@ -522,7 +522,7 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
             promptText: videoPrompt,
             promptImage: images.length > 1 ? images.slice(0, 2).map(img => img.url) : imageUrl,
             model: 'gen3a_turbo',
-            duration: duration !== undefined ? duration : 10, // Use provided duration or default to 10 seconds
+            duration: duration !== undefined ? duration : 5, // Use provided duration or default to 5 seconds
             ratio: ratio, // Add ratio parameter if provided
             parameters: {
               style: style || 'cinematic'

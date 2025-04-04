@@ -626,6 +626,11 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
                   urlPreview: videoUrl.substring(0, 60) + '...'
                 }, taskId);
                 
+                // Declare videoUrl in wider scope so it's available later
+                if (!videoUrl) {
+                  throw new Error('Video URL not found in completed task');
+                }
+                
               } else if (status === 'FAILED' || status === 'ERROR') {
                 logger.error('Runway', `Task failed: ${taskStatus.error || 'Unknown error'}`, {
                   errorDetails: taskStatus.error_details ? JSON.stringify(taskStatus.error_details).substring(0, 200) : 'None provided'
@@ -654,7 +659,7 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
             throw new Error(`Task timed out after ${attempts} polling attempts (${totalSeconds}s)`);
           }
           
-          // Shorten the video URL using the URL shortener service
+          // Shorten the video URL using the URL shortener service 
           logger.info('URLShortener', `Shortening video URL`, null, taskId);
           const shortUrl = await urlShortenerService.shortenUrl(videoUrl, { logPrefix: 'URLShortener', taskId });
           
@@ -809,11 +814,11 @@ app.post('/vehicle/:vehicleId/attach-video', async (req, res) => {
     
     // If taskId is provided, get the video URL from the task
     if (taskId) {
-      if (!videoTasks.has(taskId)) {
+      const task = taskService.getTask(taskId);
+      
+      if (!task) {
         return res.status(404).json({ error: 'Video generation task not found' });
       }
-      
-      const task = videoTasks.get(taskId);
       
       if (task.status !== 'completed') {
         return res.status(400).json({ 
@@ -839,9 +844,9 @@ app.post('/vehicle/:vehicleId/attach-video', async (req, res) => {
     };
     
     // Include original URL if available from the task
-    if (taskId && videoTasks.has(taskId)) {
-      const task = videoTasks.get(taskId);
-      if (task.originalVideoUrl) {
+    if (taskId) {
+      const task = taskService.getTask(taskId);
+      if (task && task.originalVideoUrl) {
         responseData.originalVideoUrl = task.originalVideoUrl;
       }
     }

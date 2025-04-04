@@ -793,71 +793,8 @@ app.get('/vehicle/video/:taskId', (req, res) => {
   res.json(taskStatus);
 });
 
-// Attach generated video to vehicle data
-app.post('/vehicle/:vehicleId/attach-video', async (req, res) => {
-  try {
-    const { vehicleId } = req.params;
-    const { videoUrl, taskId } = req.body;
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader) {
-      console.warn('\n----- AUTH ERROR: Missing authorization header -----');
-      return res.status(401).json({ error: 'Authorization header required' });
-    }
-    
-    // Validate inputs
-    if (!videoUrl && !taskId) {
-      return res.status(400).json({ error: 'Either videoUrl or taskId must be provided' });
-    }
-    
-    let finalVideoUrl = videoUrl;
-    
-    // If taskId is provided, get the video URL from the task
-    if (taskId) {
-      const task = taskService.getTask(taskId);
-      
-      if (!task) {
-        return res.status(404).json({ error: 'Video generation task not found' });
-      }
-      
-      if (task.status !== 'completed') {
-        return res.status(400).json({ 
-          error: 'Video generation not completed yet',
-          status: task.status
-        });
-      }
-      
-      finalVideoUrl = task.videoUrl;
-    }
-    
-    // In a real implementation, you would update the vehicle data in your database
-    // For this example, we'll just return a success message
-    console.log(`\n----- PROCESS: Attaching video to vehicle ${vehicleId} -----`);
-    console.log(`Video URL: ${finalVideoUrl}`);
-    
-    // If we're using a task, include both URLs in the response
-    const responseData = {
-      success: true,
-      vehicleId,
-      videoUrl: finalVideoUrl,
-      message: 'Video attached to vehicle successfully'
-    };
-    
-    // Include original URL if available from the task
-    if (taskId) {
-      const task = taskService.getTask(taskId);
-      if (task && task.originalVideoUrl) {
-        responseData.originalVideoUrl = task.originalVideoUrl;
-      }
-    }
-    
-    res.json(responseData);
-  } catch (error) {
-    console.error('\n----- ERROR: Attaching video to vehicle -----');
-    console.error(`Message: ${error.message}`);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
+// NOTE: The attach-video endpoint has been removed as it was legacy code
+// The proper way to update vehicle's video URL is through the /vehicle/:vehicleId/update-field endpoint
 
 // Update vehicle field endpoint
 app.put('/vehicle/:vehicleId/update-field', requireAuth, async (req, res) => {

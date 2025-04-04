@@ -23,12 +23,15 @@ async function forwardToN8n({ sessionId, message, page, lastResponse, authToken,
     ? config.n8n.prodWebhookUrl
     : config.n8n.testWebhookUrl;
   
-  logger.info(logPrefix, `Forwarding request to ${targetUrl}`, {
-    sessionId: sessionId,
+  // Use specialized n8n logger instead of generic info
+  logger.n8n('Request', `Forwarding to ${isProduction ? 'production' : 'test'} webhook`, {
+    sessionId,
     page: page || 'N/A',
+    messageLength: message?.length || 0,
     hasLastResponse: lastResponse ? 'Yes' : 'No',
-    hasAuth: authToken ? 'Yes' : 'No'
-  });
+    hasAuth: authToken ? 'Yes' : 'No',
+    targetUrl: targetUrl.split('/').slice(0, 3).join('/') + '/...' // Log just the domain, not the full URL
+  }, sessionId);
   
   try {
     // Prepare headers
@@ -41,6 +44,7 @@ async function forwardToN8n({ sessionId, message, page, lastResponse, authToken,
       headers['Authorization'] = authToken;
     }
     
+    const startTime = new Date();
     const response = await axios({
       method: 'post',
       url: targetUrl,
@@ -52,48 +56,64 @@ async function forwardToN8n({ sessionId, message, page, lastResponse, authToken,
         lastResponse: lastResponse || undefined
       }
     });
+    const requestTime = new Date() - startTime;
     
-    // Log the response from n8n, with special handling for JSON responses
-    logger.info(logPrefix, 'Received response from n8n', {
-      sessionId: sessionId
-    });
+    // Log the response from n8n with timing information
+    logger.n8n('Response', `Received response in ${requestTime}ms`, {
+      sessionId,
+      responseType: typeof response.data,
+      responseSize: JSON.stringify(response.data).length
+    }, sessionId);
     
-    // If the response is JSON, log it more clearly in the console
+    // Process and log the response data more clearly
     if (response.data) {
+      // Create a consistent format for both object and string responses
+      let formattedData;
+      
       if (typeof response.data === 'object') {
-        console.log(`\n----- N8N JSON RESPONSE [${sessionId}] -----`);
-        console.log(JSON.stringify(response.data, null, 2));
-      } else if (typeof response.data === 'string' && (response.data.startsWith('{') || response.data.startsWith('['))) {
+        // Already a JSON object
+        formattedData = response.data;
+      } else if (typeof response.data === 'string' && 
+                (response.data.startsWith('{') || response.data.startsWith('['))) {
         // Try to parse string as JSON
         try {
-          const jsonData = JSON.parse(response.data);
-          console.log(`\n----- N8N JSON RESPONSE [${sessionId}] -----`);
-          console.log(JSON.stringify(jsonData, null, 2));
+          formattedData = JSON.parse(response.data);
         } catch (e) {
-          // Not valid JSON, log as is
-          console.log(`\n----- N8N RESPONSE [${sessionId}] -----`);
-          console.log(response.data);
+          // Not valid JSON despite appearances
+          formattedData = { rawResponse: response.data.substring(0, 100) + (response.data.length > 100 ? '...' : '') };
         }
       } else {
-        console.log(`\n----- N8N RESPONSE [${sessionId}] -----`);
-        console.log(response.data);
+        // Text response or other format
+        formattedData = { 
+          rawResponse: response.data.substring(0, 100) + (response.data.length > 100 ? '...' : '')
+        };
       }
+      
+      // Log the actual response data content with our specialized logger
+      logger.n8n('Data', 'Response data', formattedData, sessionId);
     }
     
     // Return the response data as-is to preserve the exact format from n8n
     return response.data;
   } catch (error) {
-    // Log detailed error information
-    logger.error(logPrefix, `Error communicating with n8n: ${error.message}`, {
-      sessionId: sessionId,
-      errorCode: error.response?.status || 'network_error'
-    });
+    // Use specialized error logging
+    logger.error('N8N', `Communication error: ${error.message}`, {
+      sessionId,
+      errorCode: error.response?.status || 'network_error',
+      errorType: error.code || 'unknown',
+      target: targetUrl.split('/').slice(0, 3).join('/') + '/...' // Just log the domain for security
+    }, sessionId);
     
     if (error.response) {
-      logger.error(logPrefix, 'n8n response error', {
+      const errorData = error.response.data;
+      const truncatedData = typeof errorData === 'string' 
+        ? errorData.substring(0, 200) + (errorData.length > 200 ? '...' : '')
+        : JSON.stringify(errorData).substring(0, 200) + (JSON.stringify(errorData).length > 200 ? '...' : '');
+      
+      logger.n8n('Error', `API responded with status ${error.response.status}`, {
         status: error.response.status,
-        data: JSON.stringify(error.response.data).substring(0, 200) // Avoid huge logs
-      });
+        data: truncatedData
+      }, sessionId);
     }
     
     // Re-throw the error to be handled by the caller

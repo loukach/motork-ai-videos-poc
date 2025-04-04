@@ -403,19 +403,24 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
     const { prompt, style, duration, ratio } = req.body; // Optional parameters for video generation
     
     if (!authHeader) {
-      console.warn('\n----- AUTH ERROR: Missing authorization header -----');
+      logger.error('Auth', 'Missing authorization header for video generation');
       return res.status(401).json({ error: 'Authorization header required' });
     }
     
     if (!process.env.RUNWAY_API_KEY) {
-      console.error('\n----- API ERROR: Runway API key not configured -----');
+      logger.error('Runway', 'API key not configured');
       return res.status(500).json({ error: 'Runway API key not configured' });
     }
     
-    console.log(`\n----- PROCESS: Starting video generation for vehicle ${vehicleId} -----`);
+    logger.info('VideoGeneration', `Starting for vehicle ${vehicleId}`, {
+      country,
+      style: style || 'cinematic',
+      duration: duration,
+      ratio: ratio
+    });
     
     // Step 1: Get vehicle details using the vehicle service
-    console.log(`\n----- PROCESS: Fetching vehicle details -----`);
+    logger.info('VideoGeneration', 'Fetching vehicle details', { vehicleId, country });
     const vehicleData = await vehicleService.getVehicleDetails({
       vehicleId,
       authToken: authHeader,
@@ -423,22 +428,31 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
       logPrefix: 'Generate'
     });
     
-    console.log(`\n----- VEHICLE INFO: ${vehicleData.brand} ${vehicleData.model} -----`);
+    logger.info('VideoGeneration', `Vehicle identified: ${vehicleData.brand} ${vehicleData.model}`, {
+      brand: vehicleData.brand,
+      model: vehicleData.model,
+      year: vehicleData.year,
+      color: vehicleData.exteriorColorName
+    });
     
     // Step 2: Get vehicle images using the vehicle service
-    console.log(`\n----- PROCESS: Fetching vehicle gallery images -----`);
+    logger.info('VideoGeneration', 'Fetching vehicle gallery images', { vehicleId });
     const images = await vehicleService.getVehicleImages({
       vehicleId,
       authToken: authHeader,
       country,
       logPrefix: 'Generate'
     });
+    
     if (!images || !Array.isArray(images) || images.length === 0) {
-      console.error('\n----- ERROR: No images available for this vehicle -----');
+      logger.error('VideoGeneration', 'No images available for this vehicle', { vehicleId });
       return res.status(400).json({ error: 'No images available for this vehicle' });
     }
     
-    console.log(`\n----- IMAGES: Found ${images.length} images -----`);
+    logger.info('VideoGeneration', `Found ${images.length} images`, {
+      vehicleId,
+      imageCount: images.length
+    });
     
     // Create a new task in the task service with video options
     const taskId = taskService.createVideoTask(vehicleId, vehicleData, {
@@ -460,7 +474,10 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
       try {
         // Step 4: Use the first image for video generation
         const selectedImage = images[0];
-        console.log(`Selected image with URL: ${selectedImage.url}`);
+        logger.runway('Setup', `Selected primary image`, {
+          imageUrl: selectedImage.url.substring(0, 60) + '...',
+          totalImages: images.length
+        }, taskId);
         
         // Update task status data
         taskService.updateTask(taskId, { imageUrl: selectedImage.url });
@@ -470,39 +487,22 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
         const defaultPrompt = `A professional, high-quality video showcasing a ${vehicleData.year} ${vehicleData.brand} ${vehicleData.model} in ${vehicleData.exteriorColorName || 'its color'}. Show the car from different angles, highlighting its features.`;
         const videoPrompt = prompt || defaultPrompt;
         
-        console.log(`\n----- RUNWAY REQUEST: Starting video generation -----`);
-        console.log(`Prompt: ${videoPrompt}`);
-        
-        // Step 6: Call Runway API to generate video
-        console.log(`Preparing to generate video with prompt: "${videoPrompt}"`);
-        console.log(`Style: ${style || 'cinematic'} (default: cinematic)`);
-        
-        // Log new parameters if provided
-        if (duration !== undefined) {
-          console.log(`Duration: ${duration} seconds`);
-        }
-        if (ratio !== undefined) {
-          console.log(`Ratio: ${ratio}`);
-        }
-        
-        // Submit generation request to Runway
-        let videoUrl, runwayTaskId;
+        logger.runway('Setup', `Preparing video generation request`, {
+          prompt: videoPrompt.substring(0, 100) + (videoPrompt.length > 100 ? '...' : ''),
+          style: style || 'cinematic',
+          duration: duration,
+          ratio: ratio
+        }, taskId);
         
         // Check if Runway service is available
         if (!runwayService.isSDKAvailable()) {
-          console.log('\n----- RUNWAY SDK ERROR: SDK not available -----');
+          logger.error('Runway', 'SDK not available', null, taskId);
           throw new Error('Runway SDK is not available. Make sure the API key is set and the SDK is properly installed.');
         }
         
         try {
-          console.log('\n----- RUNWAY API: Creating video generation task -----');
-          
           // Use the direct image URL
           const imageUrl = selectedImage.url;
-          console.log(`Using image URL: ${imageUrl}`);
-          
-          // Initialize the generation task 
-          console.log('Starting imageToVideo task...');
           
           // Prepare request payload with new parameters
           const payload = {
@@ -513,7 +513,8 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
             ratio: ratio, // Add ratio parameter if provided
             parameters: {
               style: style || 'cinematic'
-            }
+            },
+            taskId: taskId // Include our task ID for logging purposes in the service
           };
           
           // Remove undefined properties
@@ -523,15 +524,11 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
             }
           });
           
-          console.log(`Runway request: ${style || 'cinematic'} style, ${payload.duration}s duration${payload.ratio ? `, ${payload.ratio} ratio` : ''}`);
-          console.log(`Using ${Array.isArray(payload.promptImage) ? payload.promptImage.length + ' images' : '1 image'} for video generation`);
-          
           // Make the API call via the service
           const taskResponse = await runwayService.createImageToVideoTask(payload);
           
-          // If we get here, the call succeeded
-          console.log('Successfully sent request to Runway API');
-          runwayTaskId = taskResponse.taskId || taskResponse.id;
+          // Extract task ID from response
+          const runwayTaskId = taskResponse.taskId || taskResponse.id;
           
           // Store the runway task ID immediately in our task object
           taskService.updateTask(taskId, { 
@@ -539,23 +536,30 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
             status: 'processing_runway'
           });
           
-          console.log(`Task created with ID: ${runwayTaskId}`);
-          
           // Poll for task completion
           let taskCompleted = false;
-          let maxAttempts = 60; // Increase to 60 attempts (10 minutes at 10 second intervals)
+          let maxAttempts = 60; // 60 attempts (10 minutes at 10 second intervals)
           let attempts = 0;
           
-          console.log(`[Video][${taskId}] Polling Runway task ${runwayTaskId} (every 10s, max ${maxAttempts} attempts)`);
+          logger.runway('Polling', `Will poll Runway task ${runwayTaskId} every 10s`, {
+            maxAttempts: maxAttempts,
+            interval: '10 seconds'
+          }, taskId);
+          
           const startTime = new Date();
           
           while (!taskCompleted && attempts < maxAttempts) {
             // Wrap in try/catch to handle potential errors during status check
             try {
-              console.log(`[Video][${taskId}] Polling attempt ${attempts + 1}/${maxAttempts}, elapsed time: ${Math.round((new Date() - startTime)/1000)}s`);
+              // Only log detailed polling info every 3rd attempt to reduce noise
+              if (attempts % 3 === 0) {
+                logger.runway('Polling', `Attempt ${attempts + 1}/${maxAttempts}`, {
+                  elapsedSeconds: Math.round((new Date() - startTime)/1000)
+                }, taskId);
+              }
               
-              // Get task status via service instead of direct SDK access
-              const taskStatus = await runwayService.getTaskStatus(runwayTaskId);
+              // Get task status via service
+              const taskStatus = await runwayService.getTaskStatus(runwayTaskId, taskId);
               
               // Case-insensitive status comparison for better reliability
               const status = taskStatus && taskStatus.status ? taskStatus.status.toUpperCase() : 'UNKNOWN';
@@ -570,16 +574,16 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
               if (status === 'SUCCEEDED' || status === 'SUCCESS' || status === 'COMPLETED') {
                 taskCompleted = true;
                 const totalSeconds = Math.round((new Date() - startTime)/1000);
-                console.log(`[Video][${taskId}] ✅ Task completed successfully after ${attempts} attempts (${totalSeconds}s)`);
                 
-                // Log the output format for debugging
-                console.log(`[Video][${taskId}] Output format: ${typeof taskStatus.output} ${Array.isArray(taskStatus.output) ? 'array' : ''}`);
-                if (typeof taskStatus.output === 'object' && !Array.isArray(taskStatus.output)) {
-                  console.log(`[Video][${taskId}] Output keys: ${Object.keys(taskStatus.output).join(', ')}`);
-                }
+                logger.runway('Complete', `Task completed successfully after ${totalSeconds}s`, {
+                  attempts: attempts,
+                  outputType: typeof taskStatus.output
+                }, taskId);
                 
                 // Handle different output formats
+                let videoUrl;
                 let outputFormat = 'unknown';
+                
                 if (Array.isArray(taskStatus.output) && taskStatus.output.length > 0) {
                   videoUrl = taskStatus.output[0];
                   outputFormat = 'array[0]';
@@ -599,30 +603,33 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
                   videoUrl = taskStatus.output;
                   outputFormat = 'string';
                 } else {
-                  console.error(`[Video][${taskId}] ❌ Cannot extract URL from output:`, JSON.stringify(taskStatus.output));
+                  logger.error('Runway', 'Cannot extract URL from output', {
+                    output: JSON.stringify(taskStatus.output).substring(0, 200)
+                  }, taskId);
                   throw new Error('Video URL not found in completed task');
                 }
                 
-                console.log(`[Video][${taskId}] Video URL retrieved from '${outputFormat}' format: ${videoUrl.substring(0, 60)}...`);
+                logger.runway('Complete', `Video URL retrieved (format: ${outputFormat})`, {
+                  urlPreview: videoUrl.substring(0, 60) + '...'
+                }, taskId);
+                
               } else if (status === 'FAILED' || status === 'ERROR') {
-                console.error(`[Video][${taskId}] ❌ Runway task failed: ${taskStatus.error || 'Unknown error'}`);
-                if (taskStatus.error_details) {
-                  console.error(`[Video][${taskId}] Error details:`, JSON.stringify(taskStatus.error_details));
-                }
+                logger.error('Runway', `Task failed: ${taskStatus.error || 'Unknown error'}`, {
+                  errorDetails: taskStatus.error_details ? JSON.stringify(taskStatus.error_details).substring(0, 200) : 'None provided'
+                }, taskId);
                 throw new Error(`Task failed: ${taskStatus.error || 'Unknown error'}`);
               } else {
-                // Task is still processing
-                if (attempts % 3 === 0) { // Only log every 3rd check to reduce noise
-                  console.log(`[Video][${taskId}] 🔄 Status: ${status} (attempt ${attempts}/${maxAttempts}, elapsed: ${Math.round((new Date() - startTime)/1000)}s)`);
-                }
-                // Wait 10 seconds before checking again
+                // Task is still processing - we'll log less frequently
                 await new Promise(resolve => setTimeout(resolve, 10000));
               }
             } catch (pollError) {
-              console.error(`[Video][${taskId}] ⚠️ Error during status polling: ${pollError.message}`);
+              logger.warn('Runway', `Error during status polling: ${pollError.message}`, null, taskId);
               
               // Continue polling despite error
-              console.log(`[Video][${taskId}] Will retry polling in 10 seconds (attempt ${attempts + 1}/${maxAttempts})...`);
+              logger.runway('Polling', `Will retry in 10 seconds`, { 
+                attempt: attempts + 1,
+                maxAttempts: maxAttempts
+              }, taskId);
               await new Promise(resolve => setTimeout(resolve, 10000));
               attempts++;
             }
@@ -630,124 +637,110 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
           
           if (!taskCompleted) {
             const totalSeconds = Math.round((new Date() - startTime)/1000);
-            console.error(`[Video][${taskId}] ⏱️ Task timed out after ${attempts} polling attempts (${totalSeconds}s)`);
+            logger.error('Runway', `Task timed out after ${totalSeconds}s`, { attempts }, taskId);
             throw new Error(`Task timed out after ${attempts} polling attempts (${totalSeconds}s)`);
           }
-        } catch (error) {
-          console.error(`[Video][${taskId}] ❌ Runway API error: ${error.message}`);
           
-          // Additional detailed error logging
-          console.error(`[Video][${taskId}] Detailed error information:`);
-          if (error.response) {
-            // The request was made and the server responded with a status code
-            // that falls out of the range of 2xx
-            console.error(`[Video][${taskId}] Status: ${error.response.status}`);
-            console.error(`[Video][${taskId}] Response headers:`, JSON.stringify(error.response.headers, null, 2));
-            console.error(`[Video][${taskId}] Response data:`, JSON.stringify(error.response.data, null, 2));
-          } else if (error.request) {
-            // The request was made but no response was received
-            console.error(`[Video][${taskId}] No response received from server`);
-            console.error(`[Video][${taskId}] Request details:`, error.request);
-          } else {
-            // Something happened in setting up the request that triggered an Error
-            console.error(`[Video][${taskId}] Error details:`, error.stack);
+          // Shorten the video URL using the URL shortener service
+          logger.info('URLShortener', `Shortening video URL`, null, taskId);
+          const shortUrl = await urlShortenerService.shortenUrl(videoUrl, { logPrefix: 'URLShortener', taskId });
+          
+          // Update task with video URL and completion status
+          const completionTime = new Date();
+          const completedAt = completionTime.toISOString();
+          
+          // Get the task data to calculate processing time
+          const task = taskService.getTask(taskId);
+          const startTimeStr = task.createdAt;
+          const startTime = new Date(startTimeStr);
+          
+          // Update task with completed info
+          taskService.updateTask(taskId, {
+            status: 'completed',
+            videoUrl: shortUrl,
+            originalVideoUrl: videoUrl,
+            completedAt
+          });
+          const totalProcessingSeconds = Math.round((completionTime - startTime)/1000);
+          
+          logger.info('VideoGeneration', `Completed successfully (${totalProcessingSeconds}s)`, {
+            vehicleId: taskVehicleId,
+            videoUrl: shortUrl,
+            processingTime: `${totalProcessingSeconds}s`
+          }, taskId);
+          
+          // Automatically update the vehicle videoUrl field with the shortened URL
+          try {
+            logger.info('VehicleUpdate', `Updating vehicle with video URL`, {
+              vehicleId: taskVehicleId,
+              field: 'videoUrl'
+            }, taskId);
+            
+            // Use the vehicle service to update the field
+            await vehicleService.updateVehicleField({
+              vehicleId: taskVehicleId,
+              field: 'videoUrl',
+              value: shortUrl,
+              authToken: requestAuth, 
+              apiBaseUrl: `${requestProtocol}://${requestHost}`,
+              country: requestCountry,
+              logPrefix: 'VehicleUpdate'
+            });
+            
+            // Update the task data to indicate vehicle was updated
+            taskService.updateTask(taskId, {
+              vehicleUpdated: true,
+              updateTime: new Date().toISOString()
+            });
+            
+            logger.info('VehicleUpdate', 'Successfully updated vehicle with new video URL', {
+              vehicleId: taskVehicleId
+            }, taskId);
+          } catch (updateError) {
+            logger.error('VehicleUpdate', `Failed to update vehicle videoUrl: ${updateError.message}`, {
+              vehicleId: taskVehicleId
+            }, taskId);
+            // The video is still generated successfully even if update fails
           }
           
-          // Try to get the first image directly to check if it's accessible
-          console.log(`[Video][${taskId}] Checking image accessibility...`);
-          try {
-            const checkImageResponse = await axios.head(selectedImage.url);
-            console.log(`[Video][${taskId}] Image check result: HTTP ${checkImageResponse.status}`);
-            console.log(`[Video][${taskId}] Image content type: ${checkImageResponse.headers['content-type']}`);
-          } catch (imageCheckError) {
-            console.error(`[Video][${taskId}] Failed to access image: ${imageCheckError.message}`);
+        } catch (error) {
+          logger.error('Runway', `API error: ${error.message}`, {
+            errorType: error.name,
+            stack: error.stack?.substring(0, 200)
+          }, taskId);
+          
+          // Additional detailed error logging
+          if (error.response) {
+            // The request was made and the server responded with an error status
+            logger.error('Runway', `API response error`, {
+              status: error.response.status,
+              headers: JSON.stringify(error.response.headers).substring(0, 200),
+              data: JSON.stringify(error.response.data).substring(0, 200)
+            }, taskId);
           }
           
           // Re-throw the error to be caught by the outer try/catch
           throw error;
         }
-        
-        // Shorten the video URL using the URL shortener service
-        const logPrefix = `Video][${taskId}`;
-        const shortUrl = await urlShortenerService.shortenUrl(videoUrl, { logPrefix });
-
-        // Update task with video URL and completion status
-        const completionTime = new Date();
-        const completedAt = completionTime.toISOString();
-        
-        // Get the task data to calculate processing time
-        const task = taskService.getTask(taskId);
-        const startTimeStr = task.createdAt;
-        const startTime = new Date(startTimeStr);
-        
-        // Update task with completed info
-        taskService.updateTask(taskId, {
-          status: 'completed',
-          videoUrl: shortUrl,
-          originalVideoUrl: videoUrl,
-          completedAt
-        });
-        const totalProcessingSeconds = Math.round((completionTime - startTime)/1000);
-        
-        console.log(`[Video][${taskId}] 🎬 Video generation completed successfully in ${totalProcessingSeconds}s total`);
-        console.log(`[Video][${taskId}] Started: ${startTimeStr}, Completed: ${completionTime.toISOString()}`);
-        console.log(`[Video][${taskId}] Vehicle: ${taskVehicleId}, Video URL: ${shortUrl}`);
-        
-        // Automatically update the vehicle videoUrl field with the shortened URL
-        const vehicleUpdateLogPrefix = `VehicleUpdate][${taskId}`;
-        let updateSuccess = false;
-        let updateResponse;
-        
-        try {
-          // Use the vehicle service to update the field
-          updateResponse = await vehicleService.updateVehicleField({
-            vehicleId: taskVehicleId,
-            field: 'videoUrl',
-            value: shortUrl,
-            authToken: requestAuth, 
-            apiBaseUrl: `${requestProtocol}://${requestHost}`,
-            country: requestCountry,
-            logPrefix: vehicleUpdateLogPrefix
-          });
-          
-          // Update the task data to indicate vehicle was updated
-          taskService.updateTask(taskId, {
-            vehicleUpdated: true,
-            updateTime: new Date().toISOString()
-          });
-          updateSuccess = true;
-        } catch (updateError) {
-          // The vehicle service handles retry internally
-          console.error(`[VehicleUpdate][${taskId}] ⛔ Failed to update vehicle videoUrl: ${updateError.message}`);
-          // The video is still generated successfully even if update fails
-        }
-        
-        // Full process complete - log final status
-        const fullProcessSeconds = Math.round((new Date() - new Date(startTimeStr))/1000);
-        console.log(`[Process][${taskId}] ✨ Complete process took ${fullProcessSeconds}s - Vehicle: ${taskVehicleId}, Video: ${shortUrl}`);
-        if (updateSuccess) {
-          console.log(`[Process][${taskId}] ✅ Vehicle was successfully updated with the new video URL`);
-        } else {
-          console.log(`[Process][${taskId}] ⚠️ Video was generated but vehicle update failed`);
-        }
       } catch (error) {
-        console.error(`[Process][${taskId}] ❌ Video generation failed: ${error.message}`);
+        logger.error('VideoGeneration', `Process failed: ${error.message}`, null, taskId);
         
         // Get the task data for logging
         const task = taskService.getTask(taskId);
-        const startTimeStr = task.createdAt;
+        const startTimeStr = task?.createdAt;
         
         // Update task with failure info
         taskService.updateTask(taskId, {
           status: 'failed',
           error: error.message
         });
+        
         if (startTimeStr) {
           const failedDurationSecs = Math.round((new Date() - new Date(startTimeStr))/1000);
-          console.error(`[Process][${taskId}] ⏱️ Failed after ${failedDurationSecs}s`);
+          logger.info('VideoGeneration', `Process terminated with error after ${failedDurationSecs}s`, {
+            vehicleId: taskVehicleId
+          }, taskId);
         }
-        
-        console.error(`[Process][${taskId}] ⏹️ Process terminated with error for vehicle ${taskVehicleId}`);
       }
     })();
     
@@ -759,12 +752,11 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
       message: 'Video generation started. Use the /vehicle/video/:taskId endpoint to check status.'
     });
   } catch (error) {
-    console.error('\n----- ERROR: Video generation process -----');
-    console.error(`Status: ${error.response?.status || 'Unknown'}`);
-    console.error(`Message: ${error.message}`);
-    if (error.response?.data) {
-      console.error('Response data:', JSON.stringify(error.response.data, null, 2));
-    }
+    logger.error('VideoGeneration', `Request handler error: ${error.message}`, {
+      status: error.response?.status || 'Unknown',
+      vehicleId: req.params.vehicleId,
+      responseData: error.response?.data ? JSON.stringify(error.response.data).substring(0, 200) : 'N/A'
+    });
     res.status(error.response?.status || 500).json(error.response?.data || { error: 'Internal server error' });
   }
 });

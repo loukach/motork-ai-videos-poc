@@ -3,6 +3,8 @@
  * Handles communication with the Runway ML API
  */
 
+const logger = require('../utils/logger');
+
 // Initialize Runway SDK
 let runway = null;
 try {
@@ -14,12 +16,12 @@ try {
   if (RUNWAY_API_KEY) {
     // Pass the API key as an object with the apiKey property
     runway = new RunwayML({ apiKey: RUNWAY_API_KEY });
-    console.log('Runway SDK initialized successfully');
+    logger.info('Runway', 'SDK initialized successfully');
   } else {
-    console.warn('Runway API key not found in environment variables');
+    logger.warn('Runway', 'API key not found in environment variables');
   }
 } catch (error) {
-  console.error('Error initializing Runway SDK:', error.message);
+  logger.error('Runway', 'Error initializing SDK', { error: error.message });
 }
 
 /**
@@ -31,21 +33,32 @@ try {
  * @param {number} options.duration - Video duration in seconds (Supported values: 5, 10)
  * @param {string} options.ratio - Output video resolution/aspect ratio (Supported values: "1280:768", "768:1280")
  * @param {Object} options.parameters - Additional parameters (style, etc)
+ * @param {string} [options.taskId] - Optional task ID for logging
  * @returns {Promise<Object>} Task response with ID
  */
 async function createImageToVideoTask(options) {
+  const taskId = options.taskId || 'unknown';
+  
   if (!runway) {
+    logger.error('Runway', 'SDK not available', null, taskId);
     throw new Error('Runway SDK is not available. Make sure the API key is set and the SDK is properly installed.');
   }
   
   // Process promptImage to handle both string and array formats
   const taskOptions = { ...options };
+  delete taskOptions.taskId; // Remove our custom property before sending to Runway API
+  
+  logger.runway('CreateTask', 'Starting new video generation task', {
+    model: taskOptions.model,
+    style: taskOptions.parameters?.style || 'default',
+    imageCount: Array.isArray(taskOptions.promptImage) ? taskOptions.promptImage.length : 1
+  }, taskId);
   
   // Validate and set defaults for duration if provided (must be 5 or 10)
   if (taskOptions.duration !== undefined) {
     const validDurations = [5, 10];
     if (!validDurations.includes(taskOptions.duration)) {
-      console.warn(`Invalid duration value: ${taskOptions.duration}. Must be one of ${validDurations.join(', ')}. Defaulting to 10.`);
+      logger.warn('Runway', `Invalid duration value: ${taskOptions.duration}. Defaulting to 5.`, null, taskId);
       taskOptions.duration = 5;
     }
   }
@@ -54,7 +67,7 @@ async function createImageToVideoTask(options) {
   if (taskOptions.ratio !== undefined) {
     const validRatios = ["1280:768", "768:1280"];
     if (!validRatios.includes(taskOptions.ratio)) {
-      console.warn(`Invalid ratio value: ${taskOptions.ratio}. Must be one of ${validRatios.join(', ')}. Defaulting to "1280:768".`);
+      logger.warn('Runway', `Invalid ratio value: ${taskOptions.ratio}. Defaulting to "1280:768".`, null, taskId);
       taskOptions.ratio = "1280:768";
     }
   }
@@ -80,23 +93,50 @@ async function createImageToVideoTask(options) {
     
     // Replace promptImage with the formatted array
     taskOptions.promptImage = formattedImages;
+    logger.runway('CreateTask', `Using ${formattedImages.length} images for interpolation`, null, taskId);
   }
   // If it's a string (single URL), leave it as is
   
-  return await runway.imageToVideo.create(taskOptions);
+  try {
+    const result = await runway.imageToVideo.create(taskOptions);
+    logger.runway('CreateTask', 'Task created successfully', {
+      runwayTaskId: result.taskId || result.id,
+      duration: taskOptions.duration,
+      ratio: taskOptions.ratio
+    }, taskId);
+    return result;
+  } catch (error) {
+    logger.error('Runway', `API call failed: ${error.message}`, {
+      error: error.message,
+      stack: error.stack
+    }, taskId);
+    throw error;
+  }
 }
 
 /**
  * Retrieve the status of a task
  * @param {string} taskId - The Runway task ID
+ * @param {string} [localTaskId] - Optional local task ID for logging
  * @returns {Promise<Object>} Task status details
  */
-async function getTaskStatus(taskId) {
+async function getTaskStatus(taskId, localTaskId) {
+  const logId = localTaskId || taskId.substring(0, 8);
+  
   if (!runway) {
+    logger.error('Runway', 'SDK not available', null, logId);
     throw new Error('Runway SDK is not available');
   }
   
-  return await runway.tasks.retrieve(taskId);
+  try {
+    logger.runway('CheckStatus', `Polling task status`, null, logId);
+    const result = await runway.tasks.retrieve(taskId);
+    logger.runway('CheckStatus', `Current status: ${result.status}`, null, logId);
+    return result;
+  } catch (error) {
+    logger.error('Runway', `Failed to retrieve task status: ${error.message}`, null, logId);
+    throw error;
+  }
 }
 
 /**

@@ -12,11 +12,12 @@ const logger = require('../utils/logger');
  * @param {string} params.sessionId - Unique session identifier
  * @param {string} params.message - User message to process
  * @param {string} [params.page] - Page where user is interacting (optional)
+ * @param {string} [params.lastResponse] - Previous response from n8n (optional)
  * @param {string} [params.authToken] - Authorization token to forward to n8n
  * @param {string} [params.logPrefix] - Prefix for logging (default: 'N8N')
  * @returns {Promise<Object>} - n8n response
  */
-async function forwardToN8n({ sessionId, message, page, authToken, logPrefix = 'N8N' }) {
+async function forwardToN8n({ sessionId, message, page, lastResponse, authToken, logPrefix = 'N8N' }) {
   const isProduction = process.env.NODE_ENV === 'production';
   const targetUrl = isProduction 
     ? config.n8n.prodWebhookUrl
@@ -25,6 +26,7 @@ async function forwardToN8n({ sessionId, message, page, authToken, logPrefix = '
   logger.info(logPrefix, `Forwarding request to ${targetUrl}`, {
     sessionId: sessionId,
     page: page || 'N/A',
+    hasLastResponse: lastResponse ? 'Yes' : 'No',
     hasAuth: authToken ? 'Yes' : 'No'
   });
   
@@ -46,7 +48,8 @@ async function forwardToN8n({ sessionId, message, page, authToken, logPrefix = '
       data: {
         sessionId,
         message,
-        page: page || undefined
+        page: page || undefined,
+        lastResponse: lastResponse || undefined
       }
     });
     

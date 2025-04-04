@@ -250,6 +250,7 @@ describe('API Endpoints', () => {
         sessionId: 'test-session-123',
         message: 'Hello, AI assistant',
         page: 'product-detail',
+        lastResponse: undefined,
         authToken: 'Bearer test-token',
         logPrefix: 'N8NProxy'
       });
@@ -281,6 +282,7 @@ describe('API Endpoints', () => {
         sessionId: 'json-session-123',
         message: 'How many honda are in stock?',
         page: undefined,
+        lastResponse: undefined,
         authToken: undefined,
         logPrefix: 'N8NProxy'
       });
@@ -308,6 +310,37 @@ describe('API Endpoints', () => {
       expect(response2.body).toHaveProperty('error');
     });
     
+    test('POST /n8n-proxy should forward lastResponse parameter to n8n', async () => {
+      // Mock n8n service response
+      const mockResponse = { message: 'Processed with last response' };
+      n8nService.forwardToN8n.mockResolvedValueOnce(mockResponse);
+      
+      const lastResponse = { 
+        previousData: 'Previous AI response',
+        context: ['Some context from previous interaction']
+      };
+      
+      const response = await request(app)
+        .post('/n8n-proxy')
+        .set('Authorization', 'Bearer test-token')
+        .send({
+          sessionId: 'test-session-with-history',
+          message: 'Follow-up question',
+          lastResponse: lastResponse
+        });
+        
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual(mockResponse);
+      expect(n8nService.forwardToN8n).toHaveBeenCalledWith({
+        sessionId: 'test-session-with-history',
+        message: 'Follow-up question',
+        page: undefined,
+        lastResponse: lastResponse,
+        authToken: 'Bearer test-token',
+        logPrefix: 'N8NProxy'
+      });
+    });
+
     test('POST /n8n-proxy should handle errors from n8n service', async () => {
       // Mock n8n service to throw an error
       const mockError = new Error('Failed to connect to n8n');

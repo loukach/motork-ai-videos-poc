@@ -30,6 +30,7 @@ describe('N8N Service', () => {
     const sessionId = 'test-session-123';
     const message = 'Hello, this is a test message';
     const page = 'test-page';
+    const lastResponse = { previousResponse: 'Some previous data' };
     const authToken = 'Bearer test-token';
     
     // Call the service function
@@ -37,6 +38,7 @@ describe('N8N Service', () => {
       sessionId, 
       message, 
       page,
+      lastResponse,
       authToken
     });
     
@@ -54,7 +56,8 @@ describe('N8N Service', () => {
       data: {
         sessionId,
         message,
-        page
+        page,
+        lastResponse
       }
     });
     
@@ -100,7 +103,8 @@ describe('N8N Service', () => {
       data: {
         sessionId,
         message,
-        page: undefined
+        page: undefined,
+        lastResponse: undefined
       }
     });
     

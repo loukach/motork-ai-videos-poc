@@ -894,7 +894,7 @@ if (process.env.NODE_ENV !== 'test') {
 // N8N Proxy endpoint
 app.post('/n8n-proxy', async (req, res) => {
   try {
-    const { sessionId, message, page } = req.body;
+    const { sessionId, message, page, lastResponse } = req.body;
     const authHeader = req.headers.authorization;
     
     // Validate required fields
@@ -903,13 +903,16 @@ app.post('/n8n-proxy', async (req, res) => {
       return res.status(400).json({ error: 'sessionId and message are required' });
     }
 
-    logger.info('N8NProxy', `Processing request with sessionId: ${sessionId}`);
+    logger.info('N8NProxy', `Processing request with sessionId: ${sessionId}`, {
+      hasLastResponse: lastResponse ? 'Yes' : 'No'
+    });
     
     // Use the n8n service to forward the request
     const response = await n8nService.forwardToN8n({
       sessionId,
       message,
       page,
+      lastResponse,
       authToken: authHeader, // Forward the authorization header
       logPrefix: 'N8NProxy'
     });

@@ -687,7 +687,7 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
           taskService.updateTask(taskId, {
             status: 'completed',
             videoUrl: shortUrl,
-            originalVideoUrl: videoUrl,
+            originalVideoUrl: videoTask.tempVideoUrl,
             completedAt
           });
           const totalProcessingSeconds = Math.round((completionTime - taskStartTime)/1000);

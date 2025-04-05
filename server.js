@@ -665,22 +665,22 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
           }
           
           // Get the video URL from the task data and shorten it
-          const task = taskService.getTask(taskId);
-          if (!task || !task.tempVideoUrl) {
+          const videoTask = taskService.getTask(taskId);
+          if (!videoTask || !videoTask.tempVideoUrl) {
             throw new Error('Video URL not available in task data');
           }
           
           // Shorten the video URL using the URL shortener service 
           logger.info('URLShortener', `Shortening video URL`, null, taskId);
-          const shortUrl = await urlShortenerService.shortenUrl(task.tempVideoUrl, { logPrefix: 'URLShortener', taskId });
+          const shortUrl = await urlShortenerService.shortenUrl(videoTask.tempVideoUrl, { logPrefix: 'URLShortener', taskId });
           
           // Update task with video URL and completion status
           const completionTime = new Date();
           const completedAt = completionTime.toISOString();
           
           // Get the task data to calculate processing time
-          const task = taskService.getTask(taskId);
-          const startTimeStr = task.createdAt;
+          const taskData = taskService.getTask(taskId);
+          const startTimeStr = taskData.createdAt;
           const taskStartTime = new Date(startTimeStr);
           
           // Update task with completed info

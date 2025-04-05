@@ -804,6 +804,35 @@ app.get('/vehicle/video/:taskId', (req, res) => {
   res.json(taskStatus);
 });
 
+// Get video generation task history
+app.get('/vehicle/video-history', requireAuth, (req, res) => {
+  try {
+    const { vehicleId, status, month, limit } = req.query;
+    
+    logger.info('TaskHistory', `Fetching video task history`, {
+      filters: { vehicleId, status, month, limit }
+    });
+    
+    const options = {};
+    if (vehicleId) options.vehicleId = vehicleId;
+    if (status) options.status = status;
+    if (month) options.month = month;
+    if (limit) options.limit = parseInt(limit, 10);
+    
+    const history = taskService.getTaskHistory(options);
+    
+    logger.info('TaskHistory', `Retrieved ${history.length} history records`);
+    
+    res.json({
+      count: history.length,
+      history
+    });
+  } catch (error) {
+    logger.error('TaskHistory', `Error fetching history: ${error.message}`);
+    res.status(500).json({ error: 'Failed to fetch task history' });
+  }
+});
+
 // NOTE: The attach-video endpoint has been removed as it was legacy code
 // The proper way to update vehicle's video URL is through the /vehicle/:vehicleId/update-field endpoint
 

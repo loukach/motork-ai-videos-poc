@@ -5,9 +5,24 @@
 
 const config = require('../utils/config');
 const logger = require('../utils/logger');
+const fs = require('fs');
+const path = require('path');
 
 // In-memory storage for video generation tasks
 const videoTasks = new Map();
+
+// Setup history directory if it doesn't exist
+const historyDir = path.join(__dirname, '..', 'data', 'task-history');
+try {
+  if (!fs.existsSync(path.join(__dirname, '..', 'data'))) {
+    fs.mkdirSync(path.join(__dirname, '..', 'data'));
+  }
+  if (!fs.existsSync(historyDir)) {
+    fs.mkdirSync(historyDir);
+  }
+} catch (err) {
+  logger.warn('TaskService', `Could not initialize task history directory: ${err.message}`);
+}
 
 /**
  * Creates a new video generation task
@@ -70,7 +85,61 @@ function updateTask(taskId, updateData) {
   
   logger.debug('TaskService', `Updated task`, { status: updatedTask.status }, taskId);
   
+  // If task status is changing to completed or failed, save to history
+  if ((updateData.status === 'completed' || updateData.status === 'failed') && 
+      task.status !== 'completed' && task.status !== 'failed') {
+    saveTaskToHistory(taskId, updatedTask);
+  }
+  
   return updatedTask;
+}
+
+/**
+ * Saves a task to the history file
+ * @param {string} taskId - Task ID
+ * @param {object} task - Task data
+ */
+function saveTaskToHistory(taskId, task) {
+  try {
+    // Create a history entry with important task data
+    const historyEntry = {
+      taskId,
+      vehicleId: task.vehicleId,
+      status: task.status,
+      createdAt: task.createdAt,
+      completedAt: task.completedAt || new Date().toISOString(),
+      videoUrl: task.videoUrl,
+      error: task.error,
+      duration: task.videoOptions?.duration,
+      style: task.videoOptions?.style,
+      vehicleInfo: task.vehicleData ? {
+        brand: task.vehicleData.brand,
+        model: task.vehicleData.model,
+        year: task.vehicleData.year
+      } : null,
+      processingTimeSeconds: task.completedAt ? 
+        Math.round((new Date(task.completedAt) - new Date(task.createdAt))/1000) : null
+    };
+    
+    // Save to a date-based directory to avoid too many files in one directory
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const monthDir = path.join(historyDir, today.substring(0, 7)); // YYYY-MM
+    
+    if (!fs.existsSync(monthDir)) {
+      fs.mkdirSync(monthDir, { recursive: true });
+    }
+    
+    const historyFile = path.join(monthDir, `${taskId}.json`);
+    fs.writeFileSync(historyFile, JSON.stringify(historyEntry, null, 2));
+    
+    logger.info('TaskService', `Saved task history`, { 
+      taskId, 
+      status: task.status,
+      historyFile: path.relative(__dirname, historyFile)
+    });
+  } catch (err) {
+    logger.warn('TaskService', `Failed to save task history: ${err.message}`, { taskId });
+  }
 }
 
 /**
@@ -142,11 +211,77 @@ function startCleanupTimer() {
   logger.info('TaskService', `Task cleanup scheduled every ${config.taskRetention.cleanupInterval / (60 * 1000)} minutes`);
 }
 
+/**
+ * Lists task history 
+ * @param {object} options - Filter options
+ * @param {string} [options.vehicleId] - Filter by vehicle ID
+ * @param {string} [options.status] - Filter by status (completed, failed)
+ * @param {string} [options.month] - Month to filter by (YYYY-MM format)
+ * @param {number} [options.limit=100] - Maximum number of records to return
+ * @returns {Array} Array of task history entries
+ */
+function getTaskHistory(options = {}) {
+  try {
+    const { vehicleId, status, month, limit = 100 } = options;
+    const results = [];
+    
+    // Determine which directories to scan
+    let monthDirs = [];
+    if (month) {
+      const monthPath = path.join(historyDir, month);
+      if (fs.existsSync(monthPath)) {
+        monthDirs.push(monthPath);
+      }
+    } else {
+      // Default to scanning all months, newest first
+      if (fs.existsSync(historyDir)) {
+        monthDirs = fs.readdirSync(historyDir)
+          .filter(name => name.match(/^\d{4}-\d{2}$/)) // Only include YYYY-MM directories
+          .sort((a, b) => b.localeCompare(a)) // Sort newest first
+          .map(name => path.join(historyDir, name));
+      }
+    }
+    
+    // Scan directories for matching task files
+    for (const dir of monthDirs) {
+      if (!fs.existsSync(dir)) continue;
+      
+      const files = fs.readdirSync(dir)
+        .filter(name => name.endsWith('.json'))
+        .sort((a, b) => b.localeCompare(a)); // Newest first based on filename
+      
+      for (const file of files) {
+        if (results.length >= limit) break;
+        
+        try {
+          const taskData = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8'));
+          
+          // Apply filters
+          if (vehicleId && taskData.vehicleId !== vehicleId) continue;
+          if (status && taskData.status !== status) continue;
+          
+          results.push(taskData);
+        } catch (err) {
+          logger.warn('TaskService', `Error reading task history file: ${file}`, { error: err.message });
+        }
+      }
+      
+      if (results.length >= limit) break;
+    }
+    
+    return results;
+  } catch (err) {
+    logger.error('TaskService', `Failed to get task history: ${err.message}`);
+    return [];
+  }
+}
+
 module.exports = {
   createVideoTask,
   updateTask,
   getTask,
   getTaskStatus,
   cleanupOldTasks,
-  startCleanupTimer
+  startCleanupTimer,
+  getTaskHistory
 };

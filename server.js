@@ -415,6 +415,14 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
     const country = req.query.country || 'it'; // Default to Italy if not specified
     const { prompt, style, duration, ratio } = req.body; // Optional parameters for video generation
     
+    // Simple request logging for debugging
+    console.log('\n----- GENERATE VIDEO REQUEST DETAILS -----');
+    console.log('vehicleId:', vehicleId);
+    console.log('country:', country);
+    console.log('Request body:', JSON.stringify(req.body, null, 2));
+    console.log('duration type:', typeof duration, 'value:', duration);
+    console.log('--------------------------------------------');
+    
     if (!authHeader) {
       logger.error('Auth', 'Missing authorization header for video generation');
       return res.status(401).json({ error: 'Authorization header required' });
@@ -529,6 +537,14 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
             },
             taskId: taskId // Include our task ID for logging purposes in the service
           };
+          
+          // Log payload before cleaning undefined properties
+          console.log('\n----- VIDEO GENERATION PAYLOAD (BEFORE CLEANUP) -----');
+          console.log('duration:', payload.duration, '(type:', typeof payload.duration, ')');
+          console.log('Input duration from request:', duration, '(type:', typeof duration, ')');
+          console.log('ratio:', payload.ratio);
+          console.log('style:', payload.parameters.style);
+          console.log('----------------------------------------------------');
           
           // Remove undefined properties
           Object.keys(payload).forEach(key => {

@@ -98,6 +98,15 @@ async function createImageToVideoTask(options) {
   // If it's a string (single URL), leave it as is
   
   try {
+    // Log the final parameters being sent to Runway
+    console.log('\n----- RUNWAY API REQUEST PARAMETERS -----');
+    console.log('taskId:', taskId);
+    console.log('duration:', taskOptions.duration, '(type:', typeof taskOptions.duration, ')');
+    console.log('ratio:', taskOptions.ratio);
+    console.log('style:', taskOptions.parameters?.style);
+    console.log('model:', taskOptions.model);
+    console.log('------------------------------------------');
+    
     const result = await runway.imageToVideo.create(taskOptions);
     logger.runway('CreateTask', 'Task created successfully', {
       runwayTaskId: result.taskId || result.id,

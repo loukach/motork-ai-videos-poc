@@ -631,6 +631,11 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
                   throw new Error('Video URL not found in completed task');
                 }
                 
+                // Store videoUrl in task data so it's accessible outside this block
+                taskService.updateTask(taskId, { 
+                  tempVideoUrl: videoUrl 
+                });
+                
               } else if (status === 'FAILED' || status === 'ERROR') {
                 logger.error('Runway', `Task failed: ${taskStatus.error || 'Unknown error'}`, {
                   errorDetails: taskStatus.error_details ? JSON.stringify(taskStatus.error_details).substring(0, 200) : 'None provided'
@@ -659,9 +664,15 @@ app.post('/vehicle/:vehicleId/generate-video', async (req, res) => {
             throw new Error(`Task timed out after ${attempts} polling attempts (${totalSeconds}s)`);
           }
           
+          // Get the video URL from the task data and shorten it
+          const task = taskService.getTask(taskId);
+          if (!task || !task.tempVideoUrl) {
+            throw new Error('Video URL not available in task data');
+          }
+          
           // Shorten the video URL using the URL shortener service 
           logger.info('URLShortener', `Shortening video URL`, null, taskId);
-          const shortUrl = await urlShortenerService.shortenUrl(videoUrl, { logPrefix: 'URLShortener', taskId });
+          const shortUrl = await urlShortenerService.shortenUrl(task.tempVideoUrl, { logPrefix: 'URLShortener', taskId });
           
           // Update task with video URL and completion status
           const completionTime = new Date();

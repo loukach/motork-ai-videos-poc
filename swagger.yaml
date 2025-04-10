@@ -1,0 +1,777 @@
+openapi: 3.0.0
+info:
+  title: MotorK AI Videos API
+  description: API for generating AI videos from vehicle listings using Runway ML
+  version: 1.0.0
+  contact:
+    name: MotorK Team
+servers:
+  - url: http://localhost:3000
+    description: Development server
+  - url: https://motork-ai-videos-poc.onrender.com
+    description: Production server
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+      required:
+        - error
+    
+    Token:
+      type: object
+      properties:
+        access_token:
+          type: string
+          description: JWT access token
+        token_type:
+          type: string
+          description: Token type (usually 'bearer')
+        expires_in:
+          type: integer
+          description: Token expiration time in seconds
+        scope:
+          type: string
+          description: Token scopes
+      required:
+        - access_token
+        - token_type
+        - expires_in
+    
+    Vehicle:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Vehicle ID
+        brand:
+          type: string
+          description: Vehicle brand
+        model:
+          type: string
+          description: Vehicle model
+        year:
+          type: integer
+          description: Manufacturing year
+        exteriorColorName:
+          type: string
+          description: Exterior color name
+        videoUrl:
+          type: string
+          description: URL to the generated video (if available)
+      required:
+        - id
+        - brand
+        - model
+        
+    VehicleList:
+      type: object
+      properties:
+        content:
+          type: array
+          items:
+            $ref: '#/components/schemas/Vehicle'
+        totalElements:
+          type: integer
+          description: Total number of vehicles
+        totalPages:
+          type: integer
+          description: Total number of pages
+        size:
+          type: integer
+          description: Items per page
+      required:
+        - content
+        - totalElements
+        - totalPages
+        - size
+        
+    Image:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Image ID
+        url:
+          type: string
+          description: Image URL
+      required:
+        - id
+        - url
+        
+    VideoGenerationRequest:
+      type: object
+      properties:
+        prompt:
+          type: string
+          description: Custom prompt for video generation
+        style:
+          type: string
+          description: Video style (e.g., "cinematic")
+        duration:
+          type: integer
+          description: Video duration in seconds (default is 5)
+        ratio:
+          type: string
+          description: Video aspect ratio (e.g., "1280:768")
+          
+    VideoGenerationResponse:
+      type: object
+      properties:
+        taskId:
+          type: string
+          description: Task ID for tracking generation progress
+        vehicleId:
+          type: string
+          description: Vehicle ID
+        status:
+          type: string
+          description: Initial status (always "processing")
+        message:
+          type: string
+          description: Message with instructions
+      required:
+        - taskId
+        - vehicleId
+        - status
+        - message
+        
+    VideoTaskStatus:
+      type: object
+      properties:
+        taskId:
+          type: string
+          description: Task ID
+        vehicleId:
+          type: string
+          description: Vehicle ID
+        status:
+          type: string
+          enum: [processing, processing_runway, completed, failed]
+          description: Current status of video generation
+        videoUrl:
+          type: string
+          description: Shortened video URL (when completed)
+        originalVideoUrl:
+          type: string
+          description: Original Runway video URL (when completed)
+        createdAt:
+          type: string
+          format: date-time
+          description: When the task was created
+        completedAt:
+          type: string
+          format: date-time
+          description: When the task was completed
+        error:
+          type: string
+          description: Error message (if failed)
+      required:
+        - taskId
+        - vehicleId
+        - status
+        - createdAt
+        
+    TaskHistory:
+      type: object
+      properties:
+        count:
+          type: integer
+          description: Number of history records
+        history:
+          type: array
+          items:
+            $ref: '#/components/schemas/VideoTaskStatus'
+      required:
+        - count
+        - history
+        
+    FieldUpdate:
+      type: object
+      properties:
+        field:
+          type: string
+          description: Field name to update
+        value:
+          type: string
+          description: New field value
+      required:
+        - field
+        - value
+        
+    FieldUpdateResponse:
+      type: object
+      properties:
+        vehicleId:
+          type: string
+          description: Vehicle ID
+        updatedField:
+          type: string
+          description: Name of updated field
+        oldValue:
+          type: string
+          description: Previous value
+        newValue:
+          type: string
+          description: New value
+      required:
+        - vehicleId
+        - updatedField
+        - newValue
+        
+    N8nRequest:
+      type: object
+      properties:
+        sessionId:
+          type: string
+          description: Unique session ID
+        message:
+          type: string
+          description: User message
+        page:
+          type: string
+          description: Optional page context
+        lastResponse:
+          type: string
+          description: Optional previous response
+      required:
+        - sessionId
+        - message
+
+paths:
+  /auth/token:
+    post:
+      summary: Authenticate and get access token
+      description: Provides authentication via username/password and returns a JWT token
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              properties:
+                grant_type:
+                  type: string
+                  enum: [password]
+                client_id:
+                  type: string
+                  enum: [carspark-api]
+                username:
+                  type: string
+                password:
+                  type: string
+              required:
+                - grant_type
+                - client_id
+                - username
+                - password
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Token'
+        '401':
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+                
+  /vehicles:
+    get:
+      summary: List vehicles
+      description: Returns a paginated list of vehicles
+      tags:
+        - Vehicles
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number (zero-based)
+          schema:
+            type: integer
+            default: 0
+        - name: size
+          in: query
+          description: Number of items per page
+          schema:
+            type: integer
+            default: 20
+        - name: country
+          in: query
+          description: Country code
+          schema:
+            type: string
+            default: it
+      responses:
+        '200':
+          description: List of vehicles
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleList'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /vehicle/{vehicleId}:
+    get:
+      summary: Get vehicle details
+      description: Returns details for a specific vehicle
+      tags:
+        - Vehicles
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: vehicleId
+          in: path
+          required: true
+          description: ID of the vehicle
+          schema:
+            type: string
+        - name: country
+          in: query
+          description: Country code
+          schema:
+            type: string
+            default: it
+      responses:
+        '200':
+          description: Vehicle details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicle'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Vehicle not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /vehicle/{vehicleId}/images/gallery:
+    get:
+      summary: Get vehicle gallery images
+      description: Returns images for a specific vehicle
+      tags:
+        - Vehicles
+        - Images
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: vehicleId
+          in: path
+          required: true
+          description: ID of the vehicle
+          schema:
+            type: string
+        - name: country
+          in: query
+          description: Country code
+          schema:
+            type: string
+            default: it
+      responses:
+        '200':
+          description: List of vehicle images
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Image'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Vehicle not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /vehicle/{vehicleId}/images/gallery/upload:
+    post:
+      summary: Upload image to vehicle gallery
+      description: Uploads a new image to the vehicle gallery
+      tags:
+        - Vehicles
+        - Images
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: vehicleId
+          in: path
+          required: true
+          description: ID of the vehicle
+          schema:
+            type: string
+        - name: country
+          in: query
+          description: Country code
+          schema:
+            type: string
+            default: it
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Image file to upload
+              required:
+                - file
+      responses:
+        '200':
+          description: Image uploaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: No file uploaded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /vehicle/{vehicleId}/images/gallery/{imageId}:
+    delete:
+      summary: Delete image from vehicle gallery
+      description: Deletes an image from the vehicle gallery
+      tags:
+        - Vehicles
+        - Images
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: vehicleId
+          in: path
+          required: true
+          description: ID of the vehicle
+          schema:
+            type: string
+        - name: imageId
+          in: path
+          required: true
+          description: ID of the image
+          schema:
+            type: string
+        - name: country
+          in: query
+          description: Country code
+          schema:
+            type: string
+            default: it
+      responses:
+        '200':
+          description: Image deleted successfully
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Image not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /vehicle/{vehicleId}/generate-video:
+    post:
+      summary: Generate AI video for vehicle
+      description: Initiates video generation using Runway ML
+      tags:
+        - Videos
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: vehicleId
+          in: path
+          required: true
+          description: ID of the vehicle
+          schema:
+            type: string
+        - name: country
+          in: query
+          description: Country code
+          schema:
+            type: string
+            default: it
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VideoGenerationRequest'
+      responses:
+        '200':
+          description: Video generation initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VideoGenerationResponse'
+        '400':
+          description: Invalid request or no images available
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /vehicle/video/{taskId}:
+    get:
+      summary: Get video generation status
+      description: Checks the status of a video generation task
+      tags:
+        - Videos
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          description: ID of the video generation task
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Video task status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VideoTaskStatus'
+        '404':
+          description: Task not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /vehicle/video-history:
+    get:
+      summary: Get video generation task history
+      description: Returns history of video generation tasks
+      tags:
+        - Videos
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: vehicleId
+          in: query
+          description: Filter by vehicle ID
+          schema:
+            type: string
+        - name: status
+          in: query
+          description: Filter by task status
+          schema:
+            type: string
+            enum: [processing, processing_runway, completed, failed]
+        - name: month
+          in: query
+          description: Filter by month (format YYYY-MM)
+          schema:
+            type: string
+        - name: limit
+          in: query
+          description: Limit number of results
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Task history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskHistory'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /vehicle/{vehicleId}/update-field:
+    put:
+      summary: Update vehicle field
+      description: Updates a specific field for a vehicle
+      tags:
+        - Vehicles
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: vehicleId
+          in: path
+          required: true
+          description: ID of the vehicle
+          schema:
+            type: string
+        - name: country
+          in: query
+          description: Country code
+          schema:
+            type: string
+            default: it
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FieldUpdate'
+      responses:
+        '200':
+          description: Field updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FieldUpdateResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Vehicle not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /n8n-proxy:
+    post:
+      summary: N8N proxy endpoint
+      description: Forwards requests to N8N service
+      tags:
+        - N8N
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/N8nRequest'
+      responses:
+        '200':
+          description: N8N response
+          content:
+            application/json:
+              schema:
+                type: object
+                description: N8N response (format varies)
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'

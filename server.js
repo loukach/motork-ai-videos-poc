@@ -9,6 +9,8 @@ const multer = require('multer');
 const FormData = require('form-data');
 const fs = require('fs');
 const path = require('path');
+const swaggerUi = require('swagger-ui-express');
+const YAML = require('yaml');
 
 // Import utilities
 const config = require('./utils/config');
@@ -57,6 +59,34 @@ const upload = multer({
 app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Setup Swagger UI
+const swaggerFile = fs.readFileSync('./swagger.yaml', 'utf8');
+const swaggerDocument = YAML.parse(swaggerFile);
+
+// Custom options for Swagger UI
+const swaggerOptions = {
+  customCss: '.swagger-ui .topbar { display: none } .swagger-ui .info .title { color: #1e2f5d; } .swagger-ui .btn.authorize { background-color: #1e2f5d; }',
+  customSiteTitle: 'MotorK AI Videos API Documentation',
+  customfavIcon: '/favicon.ico',
+  explorer: true,
+  swaggerOptions: {
+    persistAuthorization: true,
+    filter: true,
+    displayRequestDuration: true,
+    tryItOutEnabled: true
+  }
+};
+
+app.use('/swagger-ui', swaggerUi.serve, swaggerUi.setup(swaggerDocument, swaggerOptions));
+app.get('/api-docs', (req, res) => {
+  res.redirect('/swagger-ui');
+});
+app.get('/swagger.json', (req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.send(swaggerDocument);
+});
 
 // Optimized request logging middleware
 app.use((req, res, next) => {
@@ -905,7 +935,8 @@ if (process.env.NODE_ENV !== 'test') {
       runway: {
         api: runwayConfigured,
         sdk: runwaySDKAvailable
-      }
+      },
+      documentation: `http://localhost:${PORT}/swagger-ui`
     });
     
     console.log('=================================');
@@ -913,6 +944,7 @@ if (process.env.NODE_ENV !== 'test') {
     console.log(`Running on port: ${PORT} | Environment: ${environment}`);
     console.log(`Runway API: ${runwayConfigured}`);
     console.log(`Runway SDK: ${runwaySDKAvailable}`);
+    console.log(`API Documentation: http://localhost:${PORT}/swagger-ui`);
     console.log('=================================');
   });
 }

@@ -51,6 +51,20 @@ LOG_LEVEL=debug npm start
 
 The server will automatically filter frequent image gallery requests when running with default `info` level to reduce log volume.
 
+## API Documentation
+
+The API is documented using OpenAPI (Swagger) specification. You can access the interactive documentation at:
+
+- **Development:** `http://localhost:3000/swagger-ui`
+- **Production:** `https://motork-ai-videos-poc.onrender.com/swagger-ui`
+
+The Swagger UI provides:
+- Complete endpoint documentation
+- Interactive "Try it out" functionality to test API calls
+- Request/response examples
+- Authentication support
+- Schema models
+
 ## API Endpoints
 
 ### Base URLs

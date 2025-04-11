@@ -68,7 +68,7 @@ const swaggerDocument = YAML.parse(swaggerFile);
 // Custom options for Swagger UI
 const swaggerOptions = {
   customCss: '.swagger-ui .topbar { display: none } .swagger-ui .info .title { color: #1e2f5d; } .swagger-ui .btn.authorize { background-color: #1e2f5d; }',
-  customSiteTitle: 'MotorK AI Videos API Documentation',
+  customSiteTitle: 'Motork POC - Proxy of Carspark API',
   customfavIcon: '/favicon.ico',
   explorer: true,
   swaggerOptions: {

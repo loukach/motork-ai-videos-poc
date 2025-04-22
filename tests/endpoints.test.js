@@ -10,7 +10,8 @@ jest.mock('../services/vehicle-service', () => ({
   listVehicles: jest.fn(),
   getVehicleDetails: jest.fn(),
   getVehicleImages: jest.fn(),
-  updateVehicleField: jest.fn()
+  updateVehicleField: jest.fn(),
+  deleteVehicleImage: jest.fn()
 }));
 
 jest.mock('../services/task-service', () => ({
@@ -180,6 +181,39 @@ describe('API Endpoints', () => {
           value: 'http://example.com/video.mp4'
         })
       );
+    });
+
+    test('DELETE /vehicle/:vehicleId/images/gallery/:imageId should delete an image', async () => {
+      // Mock the service response
+      const mockDeleteResponse = {
+        success: true,
+        vehicleId: 'vehicle1',
+        imageId: 'img1'
+      };
+      
+      vehicleService.deleteVehicleImage.mockResolvedValueOnce(mockDeleteResponse);
+      
+      const response = await request(app)
+        .delete('/vehicle/vehicle1/images/gallery/img1')
+        .set('Authorization', 'Bearer test-token');
+        
+      expect(response.status).toBe(200);
+      expect(response.body).toHaveProperty('success', true);
+      expect(response.body).toHaveProperty('imageId', 'img1');
+      expect(vehicleService.deleteVehicleImage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          vehicleId: 'vehicle1',
+          imageId: 'img1',
+          authToken: 'Bearer test-token'
+        })
+      );
+    });
+
+    test('DELETE /vehicle/:vehicleId/images/gallery/:imageId should return 401 without auth token', async () => {
+      const response = await request(app)
+        .delete('/vehicle/vehicle1/images/gallery/img1');
+        
+      expect(response.status).toBe(401);
     });
   });
 

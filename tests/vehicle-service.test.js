@@ -125,4 +125,54 @@ describe('Vehicle Service', () => {
       }));
     });
   });
+
+  describe('deleteVehicleImage', () => {
+    test('should delete a vehicle image', async () => {
+      // Mock response data
+      const mockResponse = {
+        data: { success: true }
+      };
+      
+      // Setup axios mock
+      axios.mockResolvedValueOnce(mockResponse);
+      
+      // Call the service
+      const result = await vehicleService.deleteVehicleImage({
+        vehicleId: 'vehicle1',
+        imageId: 'img1',
+        authToken: 'test-token'
+      });
+      
+      // Check results
+      expect(result).toEqual({
+        success: true,
+        vehicleId: 'vehicle1',
+        imageId: 'img1',
+        ...mockResponse.data
+      });
+      
+      expect(axios).toHaveBeenCalledWith(expect.objectContaining({
+        method: 'delete',
+        url: expect.stringContaining('/vehicle/vehicle1/images/gallery/img1'),
+        headers: expect.objectContaining({
+          'Authorization': 'test-token',
+          'Accept': '*/*'
+        })
+      }));
+    });
+    
+    test('should handle errors when deleting an image', async () => {
+      // Setup axios to throw an error
+      const error = new Error('API error');
+      error.response = { status: 404, data: { message: 'Image not found' } };
+      axios.mockRejectedValueOnce(error);
+      
+      // Expect the service to throw the error
+      await expect(vehicleService.deleteVehicleImage({
+        vehicleId: 'vehicle1',
+        imageId: 'nonexistent',
+        authToken: 'test-token'
+      })).rejects.toThrow();
+    });
+  });
 });

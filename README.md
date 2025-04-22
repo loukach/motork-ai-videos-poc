@@ -204,6 +204,15 @@ Required headers:
 Authorization: Bearer your_token
 ```
 
+Response:
+```json
+{
+  "success": true,
+  "vehicleId": "7199514",
+  "imageId": "12345"
+}
+```
+
 ### Video Generation
 
 ```

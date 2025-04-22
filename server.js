@@ -396,42 +396,28 @@ app.post('/vehicle/:vehicleId/images/gallery/upload', upload.single('file'), asy
 });
 
 // Delete image from vehicle gallery
-app.delete('/vehicle/:vehicleId/images/gallery/:imageId', async (req, res) => {
+app.delete('/vehicle/:vehicleId/images/gallery/:imageId', requireAuth, async (req, res) => {
   try {
     const { vehicleId, imageId } = req.params;
-    const authHeader = req.headers.authorization;
-    const country = req.query.country || 'it'; // Default to Italy if not specified
     
-    if (!authHeader) {
-      console.warn('\n----- AUTH ERROR: Missing authorization header -----');
-      return res.status(401).json({ error: 'Authorization header required' });
-    }
-
-    console.log(`\n----- API REQUEST: Image delete (vehicleId=${vehicleId}, imageId=${imageId}, country=${country}) -----`);
-    const response = await axios({
-      method: 'delete',
-      url: `https://carspark-api.dealerk.com/${country}/vehicle/${vehicleId}/images/gallery/${imageId}`,
-      headers: {
-        'Authorization': authHeader,
-        'Accept': '*/*'
-      }
+    logger.info('Gallery', `Deleting image (vehicleId=${vehicleId}, imageId=${imageId}, country=${req.country})`);
+    
+    const response = await vehicleService.deleteVehicleImage({
+      vehicleId,
+      imageId,
+      authToken: req.authToken,
+      country: req.country,
+      logPrefix: 'ImageDelete'
     });
     
-    console.log('\n----- API RESPONSE: Image delete -----');
-    console.log(JSON.stringify({
-      status: response.status,
-      statusText: response.statusText
-    }, null, 2));
+    logger.info('Gallery', 'Image deleted successfully', {
+      vehicleId,
+      imageId
+    });
     
-    res.status(response.status).send(response.data);
+    res.json(response);
   } catch (error) {
-    console.error('\n----- API ERROR: Image delete -----');
-    console.error(`Status: ${error.response?.status || 'Unknown'}`);
-    console.error(`Message: ${error.message}`);
-    if (error.response?.data) {
-      console.error('Response data:', JSON.stringify(error.response.data, null, 2));
-    }
-    res.status(error.response?.status || 500).json(error.response?.data || { error: 'Internal server error' });
+    return handleApiError(error, res, 'Delete image');
   }
 });
 

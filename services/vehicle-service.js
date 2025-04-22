@@ -253,9 +253,77 @@ async function getVehicleImages({
   }
 }
 
+/**
+ * Deletes a vehicle image
+ * 
+ * @param {Object} options - Request options
+ * @param {string} options.vehicleId - ID of the vehicle
+ * @param {string} options.imageId - ID of the image to delete
+ * @param {string} options.authToken - Authentication token
+ * @param {string} options.country - Country code (default: 'it')
+ * @param {string} options.logPrefix - Prefix for log messages
+ * @returns {Promise<Object>} Delete response
+ */
+async function deleteVehicleImage({
+  vehicleId,
+  imageId,
+  authToken,
+  country = 'it',
+  logPrefix = ''
+}) {
+  const logger = require('../utils/logger');
+  const useEnhancedLogging = typeof logger.debug === 'function';
+  
+  if (useEnhancedLogging) {
+    logger.info('VehicleImages', `Deleting image ${imageId} for vehicle ${vehicleId}`, null, vehicleId);
+  } else {
+    const logTag = logPrefix ? `[${logPrefix}]` : '';
+    console.log(`${logTag} 🗑️ Deleting vehicle ${vehicleId} image ${imageId}...`);
+  }
+  
+  try {
+    const response = await axios({
+      method: 'delete',
+      url: `${config.apiBaseUrl}/${country}/vehicle/${vehicleId}/images/gallery/${imageId}`,
+      headers: {
+        'Authorization': authToken,
+        'Accept': '*/*'
+      }
+    });
+    
+    if (useEnhancedLogging) {
+      logger.info('VehicleImages', `Successfully deleted image ${imageId}`, null, vehicleId);
+    } else {
+      console.log(`${logPrefix ? `[${logPrefix}]` : ''} ✅ Successfully deleted image ${imageId}`);
+    }
+    
+    return {
+      success: true,
+      vehicleId,
+      imageId,
+      ...response.data
+    };
+  } catch (error) {
+    if (useEnhancedLogging) {
+      logger.error('VehicleImages', `Failed to delete image: ${error.message}`, {
+        status: error.response?.status,
+        vehicleId,
+        imageId
+      }, vehicleId);
+    } else {
+      console.error(`${logPrefix ? `[${logPrefix}]` : ''} ❌ Failed to delete vehicle image: ${error.message}`);
+      if (error.response) {
+        console.error(`${logPrefix ? `[${logPrefix}]` : ''} Response status: ${error.response.status}`);
+      }
+    }
+    throw error;
+  }
+}
+
 module.exports = {
   listVehicles,
   updateVehicleField,
   getVehicleDetails,
-  getVehicleImages
+  getVehicleImages,
+  deleteVehicleImage
 };

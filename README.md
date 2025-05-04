@@ -33,7 +33,31 @@ https://motork-ai-videos-poc.onrender.com
 - `PORT`: Server port (default: 3000)
 - `RUNWAY_API_KEY`: API key for Runway ML
 - `API_BASE_URL`: Base URL for vehicle data API
+- `AUTH_API_URL`: URL for authentication service
+- `N8N_TEST_WEBHOOK_URL`: Webhook URL for testing
+- `N8N_PROD_WEBHOOK_URL`: Webhook URL for production
+- `DEFAULT_COUNTRY`: Default country code (default: 'it')
 - `LOG_LEVEL`: Logging verbosity (options: error, warn, info, debug)
+
+Copy the `.env.example` file to create your own `.env` file:
+
+```bash
+cp .env.example .env
+```
+
+Then edit the `.env` file and add your API keys and other configuration values.
+
+### Security Recommendations
+
+Before deploying to production, please implement these security measures:
+
+1. Implement proper input validation for all API endpoints
+2. Add rate limiting for authentication and API endpoints
+3. Configure CORS settings appropriately for your environment
+4. Move all hard-coded URLs to environment variables (as shown in `.env.example`)
+5. Implement proper authentication token validation
+6. Add request timeouts for all external API calls
+7. Improve error handling with proper sanitization of error messages
 
 ### Logging Configuration
 
